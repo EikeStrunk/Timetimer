@@ -8,49 +8,80 @@
 <title>Wand-Timer</title>
 
 <style>
-  body{margin:0;height:100vh;display:flex;justify-content:center;align-items:center;
+  body{
+    margin:0;height:100vh;display:flex;justify-content:center;align-items:center;
     background:radial-gradient(circle at center,#f3f5f8 0%,#dde3ea 55%,#cfd6df 100%);
-    font-family:Arial,sans-serif;overflow:hidden;}
-  #topTime{position:absolute;top:18px;left:50%;transform:translateX(-50%);
-    font-size:44px;font-weight:700;color:rgba(0,0,0,0.75);
+    font-family:Arial,sans-serif;overflow:hidden;
+  }
+  #topTime{
+    position:absolute;top:18px;left:50%;transform:translateX(-50%);
+    font-size:44px;font-weight:700;color:rgba(0,0,0,0.75);letter-spacing:.5px;
     background:rgba(255,255,255,0.45);border:1px solid rgba(0,0,0,0.08);
-    padding:10px 16px;border-radius:14px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);}
+    padding:10px 16px;border-radius:14px;
+    backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  }
   canvas{width:85vmin;height:85vmin;filter:drop-shadow(0 10px 35px rgba(0,0,0,0.18));}
 
-  #controls{position:absolute;bottom:18px;right:18px;display:flex;gap:10px;align-items:center;
+  #controls{
+    position:absolute;bottom:18px;right:18px;display:flex;gap:10px;align-items:center;
     background:rgba(255,255,255,0.55);border:1px solid rgba(0,0,0,0.08);
     backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
-    padding:10px 12px;border-radius:14px;opacity:.35;transition:opacity 180ms ease,transform 180ms ease;
-    user-select:none;touch-action:manipulation;}
+    padding:10px 12px;border-radius:14px;
+    opacity:.35;transition:opacity 180ms ease,transform 180ms ease;
+    user-select:none;touch-action:manipulation;
+  }
   #controls:hover,#controls:focus-within{opacity:.95;transform:translateY(-2px);}
   #controls .label{font-size:14px;color:rgba(0,0,0,0.65);margin-right:2px;}
-  #controls input,#controls button{font-size:16px;padding:8px 10px;border-radius:10px;
-    border:1px solid rgba(0,0,0,0.12);background:rgba(255,255,255,0.75);color:rgba(0,0,0,0.85);outline:none;}
-  #controls button{cursor:pointer;} #controls button:active{transform:translateY(1px);}
+  #controls input,#controls button{
+    font-size:16px;padding:8px 10px;border-radius:10px;
+    border:1px solid rgba(0,0,0,0.12);background:rgba(255,255,255,0.75);
+    color:rgba(0,0,0,0.85);outline:none;
+  }
+  #controls button{cursor:pointer;}
+  #controls button:active{transform:translateY(1px);}
   .lockedHint{font-size:14px;color:rgba(0,0,0,0.55);padding-left:2px;}
   .hidden{display:none!important;}
 
-  #videoOverlay{position:fixed;inset:0;background:#000;display:none;z-index:9999;}
-  #videoOverlay video{width:100%;height:100%;object-fit:cover;background:#000;}
+  /* Video Vollbild */
+  #videoOverlay{
+    position:fixed;inset:0;background:#000;display:none;z-index:9999;
+  }
+  #videoOverlay video{
+    width:100%;height:100%;object-fit:cover;background:#000;
+  }
 
-  #audioPrimeOverlay{position:fixed;inset:0;z-index:10000;display:none;align-items:center;justify-content:center;
-    background:rgba(0,0,0,0.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);}
-  #audioPrimeOverlay .box{background:rgba(255,255,255,0.92);border-radius:18px;padding:22px 20px;width:min(560px,86vw);
-    text-align:center;border:1px solid rgba(0,0,0,0.12);}
+  /* Audio-Prime Overlay (nur wenn noch nicht gemerkt) */
+  #audioPrimeOverlay{
+    position:fixed;inset:0;z-index:10000;display:none;align-items:center;justify-content:center;
+    background:rgba(0,0,0,0.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+  }
+  #audioPrimeOverlay .box{
+    background:rgba(255,255,255,0.92);border-radius:18px;padding:22px 20px;width:min(560px,86vw);
+    text-align:center;border:1px solid rgba(0,0,0,0.12);
+  }
   #audioPrimeOverlay .title{font-size:26px;font-weight:700;color:rgba(0,0,0,0.85);margin-bottom:10px;}
   #audioPrimeOverlay .sub{font-size:16px;color:rgba(0,0,0,0.65);line-height:1.3;margin-bottom:16px;}
-  #audioPrimeOverlay button{font-size:20px;padding:12px 18px;border-radius:14px;border:1px solid rgba(0,0,0,0.16);
-    background:rgba(26,115,232,0.95);color:#fff;cursor:pointer;}
+  #audioPrimeOverlay button{
+    font-size:20px;padding:12px 18px;border-radius:14px;border:1px solid rgba(0,0,0,0.16);
+    background:rgba(26,115,232,0.95);color:#fff;cursor:pointer;
+  }
   #primeStatus{margin-top:12px;font-size:14px;color:rgba(0,0,0,0.65);}
 
-  #videoStartOverlay{position:fixed;inset:0;display:none;z-index:10001;align-items:center;justify-content:center;
-    background:rgba(0,0,0,0.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);}
-  #videoStartOverlay .box{background:rgba(255,255,255,0.92);border-radius:18px;padding:22px 20px;width:min(560px,86vw);
-    text-align:center;border:1px solid rgba(0,0,0,0.12);}
+  /* Fallback Start Overlay (wenn Autoplay mit Ton blockiert wird) */
+  #videoStartOverlay{
+    position:fixed;inset:0;display:none;z-index:10001;align-items:center;justify-content:center;
+    background:rgba(0,0,0,0.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+  }
+  #videoStartOverlay .box{
+    background:rgba(255,255,255,0.92);border-radius:18px;padding:22px 20px;width:min(560px,86vw);
+    text-align:center;border:1px solid rgba(0,0,0,0.12);
+  }
   #videoStartOverlay .title{font-size:22px;font-weight:700;color:rgba(0,0,0,0.85);margin-bottom:10px;}
   #videoStartOverlay .sub{font-size:16px;color:rgba(0,0,0,0.65);line-height:1.3;margin-bottom:16px;}
-  #videoStartOverlay button{font-size:26px;padding:16px 22px;border-radius:18px;border:1px solid rgba(0,0,0,0.16);
-    background:rgba(0,0,0,0.86);color:#fff;cursor:pointer;}
+  #videoStartOverlay button{
+    font-size:26px;padding:16px 22px;border-radius:18px;border:1px solid rgba(0,0,0,0.16);
+    background:rgba(0,0,0,0.86);color:#fff;cursor:pointer;
+  }
 </style>
 </head>
 
@@ -58,9 +89,11 @@
   <div id="topTime">--:--</div>
   <canvas id="timer"></canvas>
 
-  <div id="controls">
+  <div id="controls" aria-label="Timer-Steuerung">
     <span class="label">Min:</span>
-    <input type="number" id="minutesInput" value="45" min="1" max="60" />
+    <input type="number" id="minutesInput" value="45" min="0" max="60" step="1" />
+    <span class="label">Sek:</span>
+    <input type="number" id="secondsInput" value="0" min="0" max="59" step="1" />
     <button id="btnSet">Setzen</button>
     <button id="btnToggle">Start / Pause</button>
     <button id="btnLock">🔒</button>
@@ -70,7 +103,7 @@
   <div id="audioPrimeOverlay">
     <div class="box">
       <div class="title">Audio aktivieren</div>
-      <div class="sub">Einmal tippen, damit das Video später <b>mit Ton</b> starten darf.</div>
+      <div class="sub">Einmal tippen, damit Video später <b>mit Ton</b> starten darf (wird gemerkt).</div>
       <button id="btnPrimeAudio">🔊 Einmal tippen</button>
       <div id="primeStatus"></div>
     </div>
@@ -83,8 +116,8 @@
   <div id="videoStartOverlay">
     <div class="box">
       <div class="title">Video wartet auf Start</div>
-      <div class="sub" id="videoStartMsg">Bitte einmal tippen, dann läuft es mit Ton.</div>
-      <button id="btnStartVideo">▶ Starten</button>
+      <div class="sub" id="videoStartMsg">Browser blockiert Autoplay mit Ton. Bitte einmal tippen.</div>
+      <button id="btnStartVideo">▶ Starten (Ton)</button>
     </div>
   </div>
 
@@ -93,7 +126,7 @@
   const ctx = canvas.getContext("2d");
   canvas.width = 800; canvas.height = 800;
 
-  let totalTime = 60 * 60;
+  let totalTime = 60 * 60;   // Skala 60min
   let remaining = 45 * 60;
   let running = false;
 
@@ -106,9 +139,10 @@
     return `${y}-${m}-${da}`;
   }
 
-  // Passwortschutz
-  const PASSWORD="strunk", UNLOCK_MS=2*60*1000;
+  // Passwortschutz (NEU)
+  const PASSWORD="Strunk";
   let unlockedUntil=0;
+  const UNLOCK_MS=2*60*1000;
   const lockStateEl=document.getElementById("lockState");
   const btnLock=document.getElementById("btnLock");
 
@@ -117,18 +151,22 @@
     if(isUnlocked()){
       const secs=Math.max(0,Math.ceil((unlockedUntil-Date.now())/1000));
       lockStateEl.textContent=`entsperrt (${secs}s)`; btnLock.textContent="🔓";
-    }else{ lockStateEl.textContent="gesperrt"; btnLock.textContent="🔒"; }
+    }else{
+      lockStateEl.textContent="gesperrt"; btnLock.textContent="🔒";
+    }
   }
   function requireUnlock(){
     if(isUnlocked()) return true;
     const entered=window.prompt("Passwort eingeben:");
     if(entered===null) return false;
-    if(entered===PASSWORD){ unlockedUntil=Date.now()+UNLOCK_MS; updateLockUI(); return true; }
+    if(entered===PASSWORD){
+      unlockedUntil=Date.now()+UNLOCK_MS; updateLockUI(); return true;
+    }
     alert("Falsches Passwort."); return false;
   }
   btnLock.addEventListener("click",()=>{ if(isUnlocked()){unlockedUntil=0;updateLockUI();} else requireUnlock(); });
 
-  // Farben
+  // Farben >45 blau, >30 grün, >15 gelb, <=15 rot
   function getColor(sec){
     if(sec>45*60) return "#1a73e8";
     if(sec>30*60) return "#3cb371";
@@ -136,80 +174,32 @@
     return "#d64545";
   }
 
-  // Audio-Priming (WebAudio) + Merken
-  const AUDIO_KEY="wandTimer_audioPrimed_v2";
-  let audioPrimed=(localStorage.getItem(AUDIO_KEY)==="1");
-  const audioPrimeOverlay=document.getElementById("audioPrimeOverlay");
-  const btnPrimeAudio=document.getElementById("btnPrimeAudio");
-  const primeStatus=document.getElementById("primeStatus");
-  let audioCtx=null;
-
-  function showPrimeOverlayIfNeeded(){
-    audioPrimeOverlay.style.display = audioPrimed ? "none" : "flex";
-    primeStatus.textContent = "";
-  }
-  async function primeAudio(){
-    primeStatus.textContent="Aktiviere Audio…";
-    try{
-      const AC=window.AudioContext || window.webkitAudioContext;
-      if(!AC){ primeStatus.textContent="WebAudio nicht verfügbar."; return; }
-      if(!audioCtx) audioCtx=new AC();
-      if(audioCtx.state==="suspended" && audioCtx.resume) await audioCtx.resume();
-
-      // kurzer stummer Impuls (unlocks)
-      const osc=audioCtx.createOscillator();
-      const gain=audioCtx.createGain();
-      gain.gain.value=0.0;
-      osc.connect(gain); gain.connect(audioCtx.destination);
-      osc.start(); osc.stop(audioCtx.currentTime+0.05);
-
-      audioPrimed=true;
-      localStorage.setItem(AUDIO_KEY,"1");
-      audioPrimeOverlay.style.display="none";
-      primeStatus.textContent="";
-    }catch(e){
-      primeStatus.textContent="Audio konnte nicht aktiviert werden. Bitte nochmal tippen.";
-    }
-  }
-  btnPrimeAudio.addEventListener("click", primeAudio);
-
-  // Video bei 10s
+  // Video
   const videoOverlay=document.getElementById("videoOverlay");
   const starshipVideo=document.getElementById("starshipVideo");
   const videoStartOverlay=document.getElementById("videoStartOverlay");
   const btnStartVideo=document.getElementById("btnStartVideo");
   const videoStartMsg=document.getElementById("videoStartMsg");
 
-  const VIDEO_SRC="Starship3.mp4"; // liegt im Hauptordner
+  // ✅ Dateiname korrigiert:
+  const VIDEO_SRC="starship3.mp4"; // im Hauptordner
+
   let videoStarted=false;
   let playWatchdog=null;
 
-  function resetVideoState(){
-    videoStarted=false;
-    videoOverlay.style.display="none";
-    videoStartOverlay.style.display="none";
-    try{ starshipVideo.pause(); }catch(e){}
-    clearTimeout(playWatchdog); playWatchdog=null;
-
-    canvas.classList.remove("hidden");
-    document.getElementById("topTime").classList.remove("hidden");
-    document.getElementById("controls").classList.remove("hidden");
-  }
-
-  function showStartButton(message){
-    videoStartMsg.textContent = message;
+  function showStartButton(msg){
+    videoStartMsg.textContent = msg;
     videoStartOverlay.style.display="flex";
   }
 
-  // wenn Video einen Decode/Load Error hat -> anzeigen
   starshipVideo.addEventListener("error", () => {
-    showStartButton("Video-Fehler (Codec oder Laden). Bitte teste die MP4-URL direkt in Safari.");
+    showStartButton("Video-Fehler (Datei nicht gefunden oder Ladefehler). Prüfe Namen: starship3.mp4");
   });
 
   btnStartVideo.addEventListener("click", () => {
     videoStartOverlay.style.display="none";
-    starshipVideo.muted=false;
-    starshipVideo.volume=1.0;
+    starshipVideo.muted = false;
+    starshipVideo.volume = 1.0;
     try { starshipVideo.play(); } catch(e) {}
   });
 
@@ -220,6 +210,17 @@
     document.getElementById("topTime").classList.remove("hidden");
     document.getElementById("controls").classList.remove("hidden");
   });
+
+  function resetVideoState(){
+    videoStarted=false;
+    videoOverlay.style.display="none";
+    videoStartOverlay.style.display="none";
+    clearTimeout(playWatchdog); playWatchdog=null;
+    try{ starshipVideo.pause(); }catch(e){}
+    canvas.classList.remove("hidden");
+    document.getElementById("topTime").classList.remove("hidden");
+    document.getElementById("controls").classList.remove("hidden");
+  }
 
   function hideTimerShowVideo(){
     if(videoStarted) return;
@@ -232,40 +233,105 @@
     videoOverlay.style.display="block";
     videoStartOverlay.style.display="none";
 
-    // ganz wichtig: load() nach src setzen
     starshipVideo.src = VIDEO_SRC;
     starshipVideo.load();
     starshipVideo.currentTime = 0;
 
-    // Ton an
+    // Ton an (Wunsch)
     starshipVideo.muted = false;
     starshipVideo.volume = 1.0;
 
-    // iOS 12: play() liefert oft KEIN Promise -> wir machen Watchdog
-    try { starshipVideo.play(); } catch(e) {}
+    // Versuch 1: direkt mit Ton
+    let played = false;
+    try {
+      const p = starshipVideo.play();
+      played = true;
+      if (p && typeof p.catch === "function") {
+        p.catch(() => {
+          // Versuch 2: Autoplay muted (damit wenigstens Bild läuft),
+          // dann Start-Button für Ton.
+          try {
+            starshipVideo.muted = true;
+            starshipVideo.volume = 0;
+            const p2 = starshipVideo.play();
+            if (p2 && typeof p2.catch === "function") {
+              p2.catch(() => showStartButton("Autoplay blockiert. Bitte einmal tippen (Ton)."));
+            } else {
+              showStartButton("Bitte einmal tippen (Ton).");
+            }
+          } catch(e2) {
+            showStartButton("Bitte einmal tippen (Ton).");
+          }
+        });
+      }
+    } catch(e) {
+      showStartButton("Bitte einmal tippen (Ton).");
+    }
 
+    // Watchdog (für Browser ohne Promise / trotzdem blockiert)
     clearTimeout(playWatchdog);
     playWatchdog = setTimeout(() => {
-      // Wenn nach 800ms noch nicht playing -> Button zeigen
-      // (paused==true oder currentTime==0 deutet auf Block/Stillstand)
       const notPlaying = starshipVideo.paused || starshipVideo.currentTime === 0;
-      if (notPlaying) {
-        showStartButton("iPad blockt Start mit Ton. Bitte einmal tippen – danach läuft es.");
-      }
-    }, 800);
+      if (notPlaying) showStartButton("Browser blockiert Start. Bitte einmal tippen.");
+    }, 900);
   }
 
+  // Audio “Merken” via WebAudio unlock
+  const AUDIO_KEY="wandTimer_audioPrimed_v3";
+  let audioPrimed=(localStorage.getItem(AUDIO_KEY)==="1");
+
+  const audioPrimeOverlay=document.getElementById("audioPrimeOverlay");
+  const btnPrimeAudio=document.getElementById("btnPrimeAudio");
+  const primeStatus=document.getElementById("primeStatus");
+  let audioCtx=null;
+
+  function showPrimeOverlayIfNeeded(){
+    audioPrimeOverlay.style.display = audioPrimed ? "none" : "flex";
+    primeStatus.textContent = "";
+  }
+
+  async function primeAudio(){
+    primeStatus.textContent="Aktiviere Audio…";
+    try{
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if(!AC){ primeStatus.textContent="WebAudio nicht verfügbar."; return; }
+      if(!audioCtx) audioCtx = new AC();
+      if(audioCtx.state==="suspended" && audioCtx.resume) await audioCtx.resume();
+
+      const osc=audioCtx.createOscillator();
+      const gain=audioCtx.createGain();
+      gain.gain.value=0.0;
+      osc.connect(gain); gain.connect(audioCtx.destination);
+      osc.start(); osc.stop(audioCtx.currentTime + 0.05);
+
+      audioPrimed = true;
+      localStorage.setItem(AUDIO_KEY,"1");
+      audioPrimeOverlay.style.display="none";
+      primeStatus.textContent="";
+    }catch(e){
+      primeStatus.textContent="Audio konnte nicht aktiviert werden. Bitte nochmal tippen.";
+    }
+  }
+  btnPrimeAudio.addEventListener("click", primeAudio);
+
+  // Automatik
   function applyDailyAutomation(now=new Date()){
     const key=todayKey(now), h=now.getHours(), m=now.getMinutes();
+
     if(h===AUTO_START_H && m===AUTO_START_M && lastAutoStartKey!==key){
       resetVideoState();
-      remaining=MORNING_MINUTES*60;
-      document.getElementById("minutesInput").value=String(MORNING_MINUTES);
-      running=true; lastAutoStartKey=key;
+      remaining = MORNING_MINUTES * 60;
+      minutesInput.value = String(MORNING_MINUTES);
+      secondsInput.value = "0";
+      running = true;
+      lastAutoStartKey = key;
     }
+
     if(h===AUTO_ZERO_H && m===AUTO_ZERO_M && lastAutoZeroKey!==key){
       resetVideoState();
-      remaining=0; running=false; lastAutoZeroKey=key;
+      remaining = 0;
+      running = false;
+      lastAutoZeroKey = key;
     }
   }
 
@@ -280,6 +346,7 @@
 
     drawMinuteLabel(45); drawMinuteLabel(30); drawMinuteLabel(15);
   }
+
   function drawMinuteLabel(minute){
     const angle=(minute/60)*2*Math.PI - Math.PI/2;
     const radius=305;
@@ -289,24 +356,29 @@
     ctx.textAlign="center"; ctx.textBaseline="middle";
     ctx.fillText(minute,x,y);
   }
+
   function drawTimerArc(){
-    const progress=remaining/totalTime, angle=progress*2*Math.PI;
+    const progress=remaining/totalTime;
+    const angle=progress*2*Math.PI;
     ctx.beginPath();
     ctx.moveTo(400,400);
     ctx.arc(400,400,335,-Math.PI/2, angle - Math.PI/2, false);
     ctx.fillStyle=getColor(remaining);
     ctx.globalAlpha=0.92; ctx.fill(); ctx.globalAlpha=1;
   }
+
   function formatMMSS(sec){
     const mm=Math.floor(sec/60), ss=sec%60;
     return `${mm}:${String(ss).padStart(2,"0")}`;
   }
+
   function drawRemaining(){
     ctx.fillStyle="rgba(0,0,0,0.78)";
     ctx.font="bold 86px Arial";
     ctx.textAlign="center"; ctx.textBaseline="middle";
     ctx.fillText(formatMMSS(remaining), 400, 410);
   }
+
   function draw(){
     if(!canvas.classList.contains("hidden")){
       ctx.clearRect(0,0,800,800);
@@ -315,40 +387,71 @@
     requestAnimationFrame(draw);
   }
 
-  // Tick
+  // Tick: Video bei 10s (synchron)
   function tick(){
     applyDailyAutomation(new Date());
-    if(running && remaining>0){
+
+    if(running && remaining > 0){
+      // wenn jetzt gerade 10s verbleiben -> Video starten (bevor wir runterzählen)
+      if(remaining === 10){
+        hideTimerShowVideo();
+      }
       remaining--;
-      if(remaining===10) hideTimerShowVideo();
-      if(remaining===0) running=false;
+      if(remaining === 0) running=false;
     }
   }
 
-  // Bedienung
+  // Bedienung: Minuten + Sekunden
   const minutesInput=document.getElementById("minutesInput");
-  let lastMinutesValue=minutesInput.value;
-  function toggleTimer(){ running=!running; }
-  function setTimer(){
-    let minutes=Number(minutesInput.value);
-    if(!Number.isFinite(minutes)) minutes=45;
-    minutes=Math.max(1, Math.min(60, minutes));
-    minutesInput.value=String(minutes);
-    resetVideoState();
-    remaining=minutes*60;
+  const secondsInput=document.getElementById("secondsInput");
+  let lastMin=minutesInput.value, lastSec=secondsInput.value;
+
+  function clampInt(v, min, max, fallback){
+    const n = Number(v);
+    if(!Number.isFinite(n)) return fallback;
+    return Math.max(min, Math.min(max, Math.floor(n)));
   }
-  document.getElementById("btnSet").addEventListener("click",()=>{ if(!requireUnlock())return; setTimer(); });
-  document.getElementById("btnToggle").addEventListener("click",()=>{ if(!requireUnlock())return; toggleTimer(); });
-  minutesInput.addEventListener("focus",()=>{
-    lastMinutesValue=minutesInput.value;
+
+  function setTimer(){
+    const mins = clampInt(minutesInput.value, 0, 60, 45);
+    const secs = clampInt(secondsInput.value, 0, 59, 0);
+    minutesInput.value = String(mins);
+    secondsInput.value = String(secs);
+
+    resetVideoState();
+    remaining = mins*60 + secs;
+    if (remaining <= 0) remaining = 1; // nicht 0 setzen
+  }
+
+  function toggleTimer(){ running = !running; }
+
+  document.getElementById("btnSet").addEventListener("click",()=>{
+    if(!requireUnlock()) return;
+    setTimer();
+  });
+  document.getElementById("btnToggle").addEventListener("click",()=>{
+    if(!requireUnlock()) return;
+    toggleTimer();
+  });
+
+  // Felder schützen
+  function protectFocus(inputEl, which){
+    if(which==="min") lastMin = minutesInput.value;
+    if(which==="sec") lastSec = secondsInput.value;
+
     if(!requireUnlock()){
-      setTimeout(()=>{ minutesInput.value=lastMinutesValue; minutesInput.blur(); },0);
+      setTimeout(()=>{
+        minutesInput.value = lastMin;
+        secondsInput.value = lastSec;
+        inputEl.blur();
+      },0);
     }
-  });
-  minutesInput.addEventListener("change",()=>{
-    if(!isUnlocked()) minutesInput.value=lastMinutesValue;
-    else lastMinutesValue=minutesInput.value;
-  });
+  }
+  minutesInput.addEventListener("focus",()=>protectFocus(minutesInput,"min"));
+  secondsInput.addEventListener("focus",()=>protectFocus(secondsInput,"sec"));
+
+  minutesInput.addEventListener("change",()=>{ if(!isUnlocked()) minutesInput.value = lastMin; else lastMin = minutesInput.value; });
+  secondsInput.addEventListener("change",()=>{ if(!isUnlocked()) secondsInput.value = lastSec; else lastSec = secondsInput.value; });
 
   // Uhrzeit
   const topTimeEl=document.getElementById("topTime");
@@ -366,9 +469,8 @@
   applyDailyAutomation(new Date());
   draw();
 
+  // Audio-Prime nur wenn noch nicht gemerkt
   showPrimeOverlayIfNeeded();
 </script>
 </body>
 </html>
-
-
