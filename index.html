@@ -120,7 +120,7 @@
     position: fixed;
     inset: 0;
     z-index: 10000;
-    display: flex;
+    display: none;
     align-items: center;
     justify-content: center;
     background: rgba(0,0,0,0.55);
@@ -157,7 +157,7 @@
     cursor: pointer;
   }
 
-  /* Fallback Play Button wenn iOS beim Start trotzdem blockt */
+  /* Fallback Start Overlay wenn iOS blockt */
   #videoStartOverlay {
     position: fixed;
     inset: 0;
@@ -169,13 +169,33 @@
     backdrop-filter: blur(6px);
     -webkit-backdrop-filter: blur(6px);
   }
-  #videoStartOverlay button {
-    font-size: 26px;
-    padding: 16px 22px;
-    border-radius: 18px;
-    border: 1px solid rgba(255,255,255,0.25);
+  #videoStartOverlay .box {
     background: rgba(255,255,255,0.92);
+    border-radius: 18px;
+    padding: 22px 20px;
+    width: min(560px, 86vw);
+    text-align: center;
+    border: 1px solid rgba(0,0,0,0.12);
+  }
+  #videoStartOverlay .title {
+    font-size: 22px;
+    font-weight: 700;
     color: rgba(0,0,0,0.85);
+    margin-bottom: 10px;
+  }
+  #videoStartOverlay .sub {
+    font-size: 16px;
+    color: rgba(0,0,0,0.65);
+    line-height: 1.3;
+    margin-bottom: 16px;
+  }
+  #videoStartOverlay button {
+    font-size: 22px;
+    padding: 14px 20px;
+    border-radius: 16px;
+    border: 1px solid rgba(0,0,0,0.16);
+    background: rgba(0,0,0,0.86);
+    color: #fff;
     cursor: pointer;
   }
 </style>
@@ -194,13 +214,13 @@
     <span id="lockState" class="lockedHint">gesperrt</span>
   </div>
 
-  <!-- Audio-Prime Overlay (einmal tippen, damit Ton später sicher geht) -->
+  <!-- Audio-Prime Overlay -->
   <div id="audioPrimeOverlay">
     <div class="box">
       <div class="title">Audio aktivieren</div>
       <div class="sub">
         iPadOS 12 blockiert Ton ohne Nutzeraktion.<br>
-        Bitte einmal tippen, damit das Video später <b>mit Ton</b> automatisch startet.
+        Bitte <b>einmal tippen</b>, damit das Video später <b>mit Ton</b> startet.
       </div>
       <button id="btnPrimeAudio">🔊 Tippen um Audio zu aktivieren</button>
     </div>
@@ -208,14 +228,18 @@
 
   <!-- Video Overlay -->
   <div id="videoOverlay">
-    <!-- Für iOS 12: playsinline lieber anlassen, Overlay ist ohnehin Vollbild.
-         (Wenn iOS trotzdem in den nativen Fullscreen geht, ist das auch okay.) -->
     <video id="starshipVideo" playsinline webkit-playsinline preload="auto"></video>
   </div>
 
-  <!-- Fallback Start Overlay -->
+  <!-- Fallback Overlay -->
   <div id="videoStartOverlay">
-    <button id="btnStartVideo">▶ Video starten</button>
+    <div class="box">
+      <div class="title">Audio noch gesperrt</div>
+      <div class="sub">
+        Bitte einmal starten, dann ist Audio dauerhaft freigeschaltet.
+      </div>
+      <button id="btnStartVideoPrime">▶ Audio aktivieren</button>
+    </div>
   </div>
 
 <script>
@@ -225,7 +249,7 @@
   canvas.width = 800;
   canvas.height = 800;
 
-  let totalTime = 60 * 60;     // 60min Skala
+  let totalTime = 60 * 60;
   let remaining = 45 * 60;
   let running = false;
 
@@ -279,64 +303,87 @@
   }
 
   btnLock.addEventListener("click", () => {
-    if (isUnlocked()) {
-      unlockedUntil = 0;
-      updateLockUI();
-    } else {
-      requireUnlock();
-    }
+    if (isUnlocked()) { unlockedUntil = 0; updateLockUI(); }
+    else { requireUnlock(); }
   });
 
   // ---- Farben: >45 blau, >30 grün, >15 gelb, <=15 rot ----
   function getColor(secondsLeft) {
-    if (secondsLeft > 45 * 60) return "#1a73e8";  // blau (46-60)
-    if (secondsLeft > 30 * 60) return "#3cb371";  // grün (31-45)
-    if (secondsLeft > 15 * 60) return "#e6b800";  // gelb (16-30)
-    return "#d64545";                              // rot (0-15)
+    if (secondsLeft > 45 * 60) return "#1a73e8";
+    if (secondsLeft > 30 * 60) return "#3cb371";
+    if (secondsLeft > 15 * 60) return "#e6b800";
+    return "#d64545";
   }
 
-  // ---- Video bei 10 Sekunden ----
+  // ---- Video / Audio Prime ----
   const videoOverlay = document.getElementById("videoOverlay");
   const starshipVideo = document.getElementById("starshipVideo");
-  const videoStartOverlay = document.getElementById("videoStartOverlay");
-  const btnStartVideo = document.getElementById("btnStartVideo");
-
-  // Dateiname mit Leerzeichen URL-encoden
-  // Wenn in Unterordner: z.B. "videos/Starship%203.mp4"
-  const VIDEO_SRC = "Starship%203.mp4";
-
-  let videoStarted = false;
-  let audioPrimed = false;
-
-  // Overlay-Prime
   const audioPrimeOverlay = document.getElementById("audioPrimeOverlay");
   const btnPrimeAudio = document.getElementById("btnPrimeAudio");
 
-  // Trick: Wir spielen das Video ganz kurz stumm an (User Gesture), pausieren,
-  // danach ist Audio in dieser Session meist freigeschaltet.
+  const videoStartOverlay = document.getElementById("videoStartOverlay");
+  const btnStartVideoPrime = document.getElementById("btnStartVideoPrime");
+
+  // Wenn Video im Unterordner: z.B. "videos/Starship%203.mp4"
+  const VIDEO_SRC = "Starship%203.mp4";
+
+  // Merken
+  const AUDIO_KEY = "wandTimer_audioPrimed_v1";
+  let audioPrimed = (localStorage.getItem(AUDIO_KEY) === "1");
+
+  // Timer->Video bei 10s
+  let videoStarted = false;
+
+  function showPrimeOverlayIfNeeded() {
+    if (audioPrimed) {
+      audioPrimeOverlay.style.display = "none";
+    } else {
+      audioPrimeOverlay.style.display = "flex";
+    }
+  }
+
+  function setPrimed() {
+    audioPrimed = true;
+    localStorage.setItem(AUDIO_KEY, "1");
+    audioPrimeOverlay.style.display = "none";
+    videoStartOverlay.style.display = "none";
+  }
+
+  // Der Fix: beim Priming das Video-Overlay kurz sichtbar machen (nicht display:none),
+  // sonst rejectet iOS 12 oft play().
   async function primeAudioWithUserGesture() {
     try {
+      // Overlay sichtbar (schwarz), Video ist im DOM sichtbar
+      videoOverlay.style.display = "block";
+
       starshipVideo.src = VIDEO_SRC;
       starshipVideo.preload = "auto";
-      starshipVideo.muted = true;   // sicherer Start
-      starshipVideo.volume = 0;
       starshipVideo.currentTime = 0;
 
-      // play() muss aus dem Tap-Handler kommen -> sonst blockt iOS
+      // Erst stumm starten (das geht am leichtesten)
+      starshipVideo.muted = true;
+      starshipVideo.volume = 0;
+
+      // Wichtig: play() direkt im Klick-Handler
       await starshipVideo.play();
-      // ganz kurz laufen lassen
+
+      // Kurz laufen lassen, dann pausieren + Ton erlauben
       setTimeout(() => {
         try { starshipVideo.pause(); } catch(e){}
-        // jetzt Audio freischalten
         starshipVideo.muted = false;
         starshipVideo.volume = 1.0;
-        audioPrimed = true;
-        audioPrimeOverlay.style.display = "none";
-      }, 250);
+
+        // Overlay wieder aus (wir primen nur)
+        videoOverlay.style.display = "none";
+
+        setPrimed();
+      }, 300);
+
     } catch (e) {
-      // Wenn das schon beim Priming blockt, bleibt Overlay stehen.
-      audioPrimed = false;
-      alert("Audio konnte nicht aktiviert werden. Bitte nochmal tippen.");
+      // Wenn das blockt, geben wir eine zweite sichere Variante:
+      // User klickt "▶ Audio aktivieren", dann starten wir das Video sichtbar.
+      videoOverlay.style.display = "none";
+      videoStartOverlay.style.display = "flex";
     }
   }
 
@@ -344,45 +391,64 @@
     primeAudioWithUserGesture();
   });
 
+  // Fallback: explizites Starten (User Gesture) -> danach merken
+  btnStartVideoPrime.addEventListener("click", async () => {
+    try {
+      videoOverlay.style.display = "block";
+      videoStartOverlay.style.display = "none";
+
+      starshipVideo.src = VIDEO_SRC;
+      starshipVideo.currentTime = 0;
+
+      // Jetzt darf es auch direkt mit Ton sein, aber sicherer: erst stumm 100ms
+      starshipVideo.muted = true;
+      starshipVideo.volume = 0;
+
+      await starshipVideo.play();
+
+      setTimeout(() => {
+        starshipVideo.muted = false;
+        starshipVideo.volume = 1.0;
+        try { starshipVideo.pause(); } catch(e){}
+        videoOverlay.style.display = "none";
+        setPrimed();
+      }, 350);
+
+    } catch (e) {
+      alert("Audio konnte nicht aktiviert werden. Bitte nochmal tippen.");
+      videoOverlay.style.display = "none";
+      videoStartOverlay.style.display = "none";
+    }
+  });
+
   function hideTimerShowVideo() {
     if (videoStarted) return;
     videoStarted = true;
 
-    // UI ausblenden
     document.getElementById("topTime").classList.add("hidden");
     document.getElementById("controls").classList.add("hidden");
     canvas.classList.add("hidden");
 
-    // Overlay zeigen
     videoOverlay.style.display = "block";
     videoStartOverlay.style.display = "none";
 
-    // Video starten (mit Ton)
     starshipVideo.src = VIDEO_SRC;
     starshipVideo.currentTime = 0;
 
-    // Ton muss an
+    // Ton AN
     starshipVideo.muted = false;
     starshipVideo.volume = 1.0;
 
     const p = starshipVideo.play();
     if (p && typeof p.catch === "function") {
       p.catch(() => {
-        // Falls iOS trotzdem blockt: großen Start-Button zeigen
+        // Wenn iOS trotz Priming blockt: Start Overlay zeigen
         videoStartOverlay.style.display = "flex";
       });
     }
   }
 
-  btnStartVideo.addEventListener("click", () => {
-    // User Gesture -> jetzt MUSS es gehen
-    videoStartOverlay.style.display = "none";
-    starshipVideo.muted = false;
-    starshipVideo.volume = 1.0;
-    starshipVideo.play();
-  });
-
-  // Nach Video-Ende: wieder anzeigen (Timer steht dann auf 0)
+  // Wenn Video-Ende: UI zurück
   starshipVideo.addEventListener("ended", () => {
     videoOverlay.style.display = "none";
     videoStartOverlay.style.display = "none";
@@ -397,8 +463,6 @@
     videoOverlay.style.display = "none";
     videoStartOverlay.style.display = "none";
     try { starshipVideo.pause(); } catch(e){}
-    // src behalten wir, damit es vorgeladen bleibt – optional:
-    // starshipVideo.removeAttribute("src"); starshipVideo.load();
 
     canvas.classList.remove("hidden");
     document.getElementById("topTime").classList.remove("hidden");
@@ -410,7 +474,6 @@
     const h = now.getHours();
     const m = now.getMinutes();
 
-    // 07:15 -> Reset + 45min + Start
     if (h === AUTO_START_H && m === AUTO_START_M && lastAutoStartKey !== key) {
       resetVideoState();
       remaining = MORNING_MINUTES * 60;
@@ -419,7 +482,6 @@
       lastAutoStartKey = key;
     }
 
-    // 08:00 -> Reset + 0 + Stop (Video NICHT starten)
     if (h === AUTO_ZERO_H && m === AUTO_ZERO_M && lastAutoZeroKey !== key) {
       resetVideoState();
       remaining = 0;
@@ -505,9 +567,8 @@
     if (running && remaining > 0) {
       remaining--;
 
-      // Bei genau 10 Sekunden: Timer ausblenden, Video starten
+      // bei 10 Sekunden Video starten
       if (remaining === 10) {
-        // Wenn Audio noch nicht primed ist, wirst du spätestens hier den Startbutton sehen.
         hideTimerShowVideo();
       }
 
@@ -574,8 +635,8 @@
   applyDailyAutomation(new Date());
   draw();
 
-  // Hinweis: Wenn du willst, dass das Audio-Prime-Overlay NICHT jeden Tag kommt,
-  // können wir es nach erfolgreichem Priming in localStorage merken.
+  // Prime Overlay nur zeigen, wenn noch nicht gemerkt
+  showPrimeOverlayIfNeeded();
 </script>
 </body>
 </html>
