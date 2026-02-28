@@ -2,8 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Wand-Timer</title>
 
@@ -42,7 +41,7 @@
   .lockedHint{font-size:14px;color:rgba(0,0,0,0.55);padding-left:2px;}
   .hidden{display:none!important;}
 
-  /* Vollbild Video */
+  /* Video Overlay */
   #videoOverlay{
     position:fixed;inset:0;background:#000;display:none;z-index:9999;
   }
@@ -50,7 +49,7 @@
     width:100%;height:100%;object-fit:cover;background:#000;
   }
 
-  /* Info / Tap für Ton */
+  /* Tap für Ton */
   #videoHint{
     position:fixed;inset:0;z-index:10000;display:none;
     align-items:flex-end;justify-content:center;
@@ -77,15 +76,15 @@
     padding:24px;
   }
   #videoError .box{
-    max-width:760px;
+    max-width:860px;
     background:rgba(0,0,0,0.55);
     border:1px solid rgba(255,255,255,0.18);
     border-radius:18px;
     padding:18px 18px;
     line-height:1.35;
     font-size:16px;
+    white-space:pre-wrap;
   }
-  #videoError .box b{font-size:18px;}
   #videoError code{background:rgba(255,255,255,0.12);padding:2px 6px;border-radius:6px;}
 </style>
 </head>
@@ -106,8 +105,7 @@
   </div>
 
   <div id="videoOverlay">
-    <!-- muted als Attribut hilft Autoplay in Chrome/iOS -->
-    <video id="starshipVideo" playsinline webkit-playsinline preload="auto" muted>
+    <video id="starshipVideo" playsinline preload="auto" muted>
       <source id="videoSource" src="" type="video/mp4">
     </video>
   </div>
@@ -165,7 +163,6 @@
   }
   btnLock.addEventListener("click",()=>{ if(isUnlocked()){unlockedUntil=0;updateLockUI();} else requireUnlock(); });
 
-  // Farben
   function getColor(sec){
     if(sec>45*60) return "#1a73e8";
     if(sec>30*60) return "#3cb371";
@@ -183,29 +180,50 @@
   const errorText = document.getElementById("errorText");
 
   const VIDEO_FILE = "starship3.mp4";
-  // robuster Pfad + Cache-Buster
   const VIDEO_SRC = new URL(VIDEO_FILE, window.location.href).toString() + "?v=20260228a";
 
-  let videoStarted = false;
+  let videoArmed = false;   // Video-Start angefordert?
+  let videoPlaying = false; // Spielt wirklich?
 
-  function showError(html){
-    errorText.innerHTML = html;
+  function showError(text){
+    errorText.textContent = text;
     videoError.style.display = "flex";
   }
-  function hideError(){
-    videoError.style.display = "none";
+  function hideError(){ videoError.style.display = "none"; }
+
+  function showTimerUI(){
+    canvas.classList.remove("hidden");
+    document.getElementById("topTime").classList.remove("hidden");
+    document.getElementById("controls").classList.remove("hidden");
+  }
+  function hideTimerUI(){
+    canvas.classList.add("hidden");
+    document.getElementById("topTime").classList.add("hidden");
+    document.getElementById("controls").classList.add("hidden");
   }
 
-  // Statt HEAD: Range-GET (kompatibel mit MP4/CDN/Servern)
-  async function checkVideoReachable(){
-    // Wenn lokal per file:// geöffnet: fetch ist oft eingeschränkt – nicht blocken
-    if (location.protocol === "file:") return true;
+  function resetVideoState(){
+    videoArmed = false;
+    videoPlaying = false;
 
+    videoOverlay.style.display="none";
+    videoHint.style.display="none";
+    hideError();
+
+    try{ starshipVideo.pause(); }catch(e){}
+    videoSource.src = "";
+    try{ starshipVideo.load(); }catch(e){}
+
+    showTimerUI();
+  }
+
+  async function checkVideoReachable(){
+    // Range-GET (funktioniert bei dir: 206 gesehen)
     try{
       const res = await fetch(VIDEO_SRC, {
-        method: "GET",
-        headers: { "Range": "bytes=0-1" },
-        cache: "no-store"
+        method:"GET",
+        headers:{ "Range":"bytes=0-1" },
+        cache:"no-store"
       });
       return res.ok || res.status === 206;
     }catch(e){
@@ -213,84 +231,78 @@
     }
   }
 
-  function resetVideoState(){
-    videoStarted = false;
-    videoOverlay.style.display="none";
-    videoHint.style.display="none";
-    hideError();
-
-    try{ starshipVideo.pause(); }catch(e){}
-    // Quelle sauber zurücksetzen
-    starshipVideo.removeAttribute("src");
-    videoSource.src = "";
-    try{ starshipVideo.load(); }catch(e){}
-
-    canvas.classList.remove("hidden");
-    document.getElementById("topTime").classList.remove("hidden");
-    document.getElementById("controls").classList.remove("hidden");
-  }
-
-  // Startlogik: autoplay muted => Bild läuft, Tap => Ton an
   async function startVideoRobust(){
     hideError();
 
     const ok = await checkVideoReachable();
     if(!ok){
-      showError(`<b>Video nicht erreichbar</b><br>
-        Datei <code>${VIDEO_FILE}</code> wird nicht gefunden oder nicht ausgeliefert.<br>
-        Prüfe: gleiche Ebene wie <code>index.html</code> (oder passe den Pfad an).<br>
-        Aktuelle URL: <code>${VIDEO_SRC}</code>`);
-      resetVideoState();
+      showError(
+        "Video nicht erreichbar.\n\n" +
+        "Datei: " + VIDEO_FILE + "\n" +
+        "URL: " + VIDEO_SRC + "\n\n" +
+        "Prüfe Pfad/Name (Groß-/Kleinschreibung) und GitHub Pages Build."
+      );
+      // Timer sichtbar lassen (kein schwarzer Screen)
+      showTimerUI();
       return;
     }
 
+    // Overlay zeigen, aber Timer erst ausblenden, wenn wirklich "playing"
     videoOverlay.style.display = "block";
     videoHint.style.display = "flex";
 
-    // Quelle setzen + laden
     videoSource.src = VIDEO_SRC;
     starshipVideo.load();
-
-    // Garantiert "muted autoplay"
     starshipVideo.currentTime = 0;
+
     starshipVideo.muted = true;
     starshipVideo.volume = 0;
 
-    let started = false;
     try{
       const p = starshipVideo.play();
       if (p && typeof p.then === "function") await p;
-      started = true;
     }catch(e){
-      started = false;
+      showError(
+        "Video play() wurde geblockt/fehlgeschlagen.\n\n" +
+        (e && e.message ? e.message : String(e)) + "\n\n" +
+        "URL:\n" + VIDEO_SRC
+      );
+      // Timer sichtbar lassen
+      showTimerUI();
+      return;
     }
 
-    // Wenn muted nicht startet -> Fehler anzeigen + UI zurück
+    // Falls nach kurzer Zeit nicht "playing": Fehler zeigen und Timer sichtbar lassen
     setTimeout(() => {
-      const notPlaying = starshipVideo.paused || starshipVideo.readyState < 2;
-      if (!started || notPlaying){
-        showError(`<b>Video startet nicht</b><br>
-          Datei ist erreichbar, aber der Browser startet sie nicht.<br>
-          Test: öffne <code>${VIDEO_FILE}</code> direkt im Browser (ohne Timer-Seite).<br>
-          Hinweis: Bei sehr großen MP4 oder falschem Codec kann Chrome blocken.`);
-        resetVideoState();
+      if(!videoPlaying){
+        showError(
+          "Video startet nicht (kein 'playing').\n\n" +
+          "paused=" + starshipVideo.paused + "\n" +
+          "readyState=" + starshipVideo.readyState + "\n\n" +
+          "URL:\n" + VIDEO_SRC
+        );
+        // Overlay aus, Timer an (nie schwarz)
+        videoOverlay.style.display = "none";
+        videoHint.style.display = "none";
+        showTimerUI();
       }
-    }, 900);
+    }, 1200);
 
     hintText.textContent = "🔊 Tippen für Ton";
   }
 
-  // Tap schaltet Ton an (User Gesture)
+  // WICHTIG: Erst hier UI ausblenden, wenn Video wirklich läuft
+  starshipVideo.addEventListener("playing", () => {
+    videoPlaying = true;
+    hideTimerUI();
+  });
+
+  // Tap -> Ton an
   videoHint.addEventListener("click", async () => {
     try{
       starshipVideo.muted = false;
       starshipVideo.volume = 1.0;
-
-      // Manche Browser brauchen nochmal play() nach unmute
-      if (starshipVideo.paused) {
-        await starshipVideo.play();
-      }
-
+      if (starshipVideo.paused) await starshipVideo.play();
       videoHint.style.display = "none";
     }catch(e){
       hintText.textContent = "Bitte nochmal tippen (Ton blockiert)";
@@ -298,26 +310,26 @@
   });
 
   // Ende -> Timer zurück
-  starshipVideo.addEventListener("ended", () => {
-    resetVideoState();
-  });
+  starshipVideo.addEventListener("ended", resetVideoState);
 
-  // Media-Fehler -> Overlay + Timer zurück
+  // Fehler -> Fehleroverlay + Timer sichtbar (kein Reset, der alles wegwischt)
   starshipVideo.addEventListener("error", () => {
-    showError(`<b>Video-Fehler</b><br>
-      Browser meldet einen Fehler beim Laden/Abspielen der Datei <code>${VIDEO_FILE}</code>.<br>
-      (Codec/Datei beschädigt/Pfad/CORS)`);
-    resetVideoState();
+    showError(
+      "Video-Fehler beim Laden/Abspielen.\n\n" +
+      "Datei: " + VIDEO_FILE + "\n" +
+      "URL: " + VIDEO_SRC + "\n\n" +
+      "Tipp: Öffne die MP4 direkt im Browser zum Test."
+    );
+    videoOverlay.style.display = "none";
+    videoHint.style.display = "none";
+    showTimerUI();
   });
 
   function hideTimerShowVideo(){
-    if(videoStarted) return;
-    videoStarted = true;
+    if(videoArmed) return;
+    videoArmed = true;
 
-    document.getElementById("topTime").classList.add("hidden");
-    document.getElementById("controls").classList.add("hidden");
-    canvas.classList.add("hidden");
-
+    // Timer NICHT sofort verstecken -> erst bei "playing"
     startVideoRobust();
   }
 
@@ -388,7 +400,7 @@
     requestAnimationFrame(draw);
   }
 
-  // Tick: Video genau bei 10s (vor decrement)
+  // Tick: Video genau bei 10s
   function tick(){
     applyDailyAutomation(new Date());
     if(running && remaining > 0){
@@ -400,7 +412,7 @@
     }
   }
 
-  // Bedienung: Minuten + Sekunden
+  // Bedienung
   const minutesInput=document.getElementById("minutesInput");
   const secondsInput=document.getElementById("secondsInput");
   let lastMin=minutesInput.value, lastSec=secondsInput.value;
