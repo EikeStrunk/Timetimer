@@ -298,16 +298,34 @@
   });
 
   // Tap -> Ton an
-  videoHint.addEventListener("click", async () => {
-    try{
-      starshipVideo.muted = false;
-      starshipVideo.volume = 1.0;
-      if (starshipVideo.paused) await starshipVideo.play();
-      videoHint.style.display = "none";
-    }catch(e){
-      hintText.textContent = "Bitte nochmal tippen (Ton blockiert)";
+  function enableSound(){
+  // sichtbares Feedback: Hint sofort weg
+  videoHint.style.display = "none";
+  hintText.textContent = "🔊 Tippen für Ton"; // Reset für nächstes Mal
+
+  // jetzt Ton aktivieren
+  try{
+    starshipVideo.muted = false;
+    starshipVideo.volume = 1.0;
+
+    // play() innerhalb der User-Geste anstoßen (ohne await)
+    const p = starshipVideo.play();
+    if (p && typeof p.catch === "function") {
+      p.catch(() => {
+        // Wenn es doch blockiert: Hint wieder zeigen
+        videoHint.style.display = "flex";
+        hintText.textContent = "Bitte nochmal tippen (Ton blockiert)";
+      });
     }
-  });
+  }catch(e){
+    videoHint.style.display = "flex";
+    hintText.textContent = "Bitte nochmal tippen (Ton blockiert)";
+  }
+}
+
+// überall tippen: auf Hinweis-Overlay UND auf Video-Overlay
+videoHint.addEventListener("pointerdown", (e) => { e.preventDefault(); enableSound(); });
+videoOverlay.addEventListener("pointerdown", (e) => { e.preventDefault(); enableSound(); });
 
   // Ende -> Timer zurück
   starshipVideo.addEventListener("ended", resetVideoState);
@@ -479,3 +497,4 @@
 </script>
 </body>
 </html>
+
