@@ -42,7 +42,7 @@
   .lockedHint{font-size:14px;color:rgba(0,0,0,0.55);padding-left:2px;}
   .hidden{display:none!important;}
 
-  /* Video Vollbild */
+  /* Vollbild Video */
   #videoOverlay{
     position:fixed;inset:0;background:#000;display:none;z-index:9999;
   }
@@ -50,38 +50,42 @@
     width:100%;height:100%;object-fit:cover;background:#000;
   }
 
-  /* Audio-Prime Overlay (nur wenn noch nicht gemerkt) */
-  #audioPrimeOverlay{
-    position:fixed;inset:0;z-index:10000;display:none;align-items:center;justify-content:center;
-    background:rgba(0,0,0,0.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+  /* Info / Tap für Ton */
+  #videoHint{
+    position:fixed;inset:0;z-index:10000;display:none;
+    align-items:flex-end;justify-content:center;
+    pointer-events:auto;
   }
-  #audioPrimeOverlay .box{
-    background:rgba(255,255,255,0.92);border-radius:18px;padding:22px 20px;width:min(560px,86vw);
-    text-align:center;border:1px solid rgba(0,0,0,0.12);
+  #videoHint .pill{
+    margin:24px;
+    padding:14px 16px;
+    border-radius:16px;
+    background:rgba(255,255,255,0.9);
+    border:1px solid rgba(0,0,0,0.12);
+    color:rgba(0,0,0,0.85);
+    font-size:18px;
+    box-shadow:0 10px 25px rgba(0,0,0,0.25);
   }
-  #audioPrimeOverlay .title{font-size:26px;font-weight:700;color:rgba(0,0,0,0.85);margin-bottom:10px;}
-  #audioPrimeOverlay .sub{font-size:16px;color:rgba(0,0,0,0.65);line-height:1.3;margin-bottom:16px;}
-  #audioPrimeOverlay button{
-    font-size:20px;padding:12px 18px;border-radius:14px;border:1px solid rgba(0,0,0,0.16);
-    background:rgba(26,115,232,0.95);color:#fff;cursor:pointer;
-  }
-  #primeStatus{margin-top:12px;font-size:14px;color:rgba(0,0,0,0.65);}
 
-  /* Fallback Start Overlay (wenn Autoplay mit Ton blockiert wird) */
-  #videoStartOverlay{
-    position:fixed;inset:0;display:none;z-index:10001;align-items:center;justify-content:center;
-    background:rgba(0,0,0,0.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+  /* Fehler overlay (falls Datei nicht lädt) */
+  #videoError{
+    position:fixed;inset:0;z-index:10001;display:none;
+    align-items:center;justify-content:center;
+    background:rgba(0,0,0,0.65);
+    color:#fff;
+    text-align:center;
+    padding:24px;
   }
-  #videoStartOverlay .box{
-    background:rgba(255,255,255,0.92);border-radius:18px;padding:22px 20px;width:min(560px,86vw);
-    text-align:center;border:1px solid rgba(0,0,0,0.12);
+  #videoError .box{
+    max-width:760px;
+    background:rgba(0,0,0,0.55);
+    border:1px solid rgba(255,255,255,0.18);
+    border-radius:18px;
+    padding:18px 18px;
+    line-height:1.35;
+    font-size:16px;
   }
-  #videoStartOverlay .title{font-size:22px;font-weight:700;color:rgba(0,0,0,0.85);margin-bottom:10px;}
-  #videoStartOverlay .sub{font-size:16px;color:rgba(0,0,0,0.65);line-height:1.3;margin-bottom:16px;}
-  #videoStartOverlay button{
-    font-size:26px;padding:16px 22px;border-radius:18px;border:1px solid rgba(0,0,0,0.16);
-    background:rgba(0,0,0,0.86);color:#fff;cursor:pointer;
-  }
+  #videoError .box b{font-size:18px;}
 </style>
 </head>
 
@@ -100,25 +104,18 @@
     <span id="lockState" class="lockedHint">gesperrt</span>
   </div>
 
-  <div id="audioPrimeOverlay">
-    <div class="box">
-      <div class="title">Audio aktivieren</div>
-      <div class="sub">Einmal tippen, damit Video später <b>mit Ton</b> starten darf (wird gemerkt).</div>
-      <button id="btnPrimeAudio">🔊 Einmal tippen</button>
-      <div id="primeStatus"></div>
-    </div>
-  </div>
-
   <div id="videoOverlay">
-    <video id="starshipVideo" playsinline webkit-playsinline preload="auto"></video>
+    <video id="starshipVideo" playsinline webkit-playsinline preload="auto">
+      <source id="videoSource" src="" type="video/mp4">
+    </video>
   </div>
 
-  <div id="videoStartOverlay">
-    <div class="box">
-      <div class="title">Video wartet auf Start</div>
-      <div class="sub" id="videoStartMsg">Browser blockiert Autoplay mit Ton. Bitte einmal tippen.</div>
-      <button id="btnStartVideo">▶ Starten (Ton)</button>
-    </div>
+  <div id="videoHint">
+    <div class="pill" id="hintText">🔊 Tippen für Ton</div>
+  </div>
+
+  <div id="videoError">
+    <div class="box" id="errorText"></div>
   </div>
 
 <script>
@@ -126,7 +123,7 @@
   const ctx = canvas.getContext("2d");
   canvas.width = 800; canvas.height = 800;
 
-  let totalTime = 60 * 60;   // Skala 60min
+  let totalTime = 60 * 60;
   let remaining = 45 * 60;
   let running = false;
 
@@ -166,7 +163,7 @@
   }
   btnLock.addEventListener("click",()=>{ if(isUnlocked()){unlockedUntil=0;updateLockUI();} else requireUnlock(); });
 
-  // Farben >45 blau, >30 grün, >15 gelb, <=15 rot
+  // Farben
   function getColor(sec){
     if(sec>45*60) return "#1a73e8";
     if(sec>30*60) return "#3cb371";
@@ -174,147 +171,149 @@
     return "#d64545";
   }
 
-  // Video
-  const videoOverlay=document.getElementById("videoOverlay");
-  const starshipVideo=document.getElementById("starshipVideo");
-  const videoStartOverlay=document.getElementById("videoStartOverlay");
-  const btnStartVideo=document.getElementById("btnStartVideo");
-  const videoStartMsg=document.getElementById("videoStartMsg");
+  // Video Elements
+  const videoOverlay = document.getElementById("videoOverlay");
+  const starshipVideo = document.getElementById("starshipVideo");
+  const videoSource = document.getElementById("videoSource");
+  const videoHint = document.getElementById("videoHint");
+  const hintText = document.getElementById("hintText");
+  const videoError = document.getElementById("videoError");
+  const errorText = document.getElementById("errorText");
 
-  // ✅ Dateiname korrigiert:
-  const VIDEO_SRC="starship3.mp4"; // im Hauptordner
+  const VIDEO_FILE = "starship3.mp4";
+  // Cache-Buster, damit du nicht im Browser-Cache festhängst
+  const VIDEO_SRC = `${VIDEO_FILE}?v=20260228a`;
 
-  let videoStarted=false;
-  let playWatchdog=null;
+  let videoStarted = false;
 
-  function showStartButton(msg){
-    videoStartMsg.textContent = msg;
-    videoStartOverlay.style.display="flex";
+  function showError(html){
+    errorText.innerHTML = html;
+    videoError.style.display = "flex";
+  }
+  function hideError(){
+    videoError.style.display = "none";
   }
 
-  starshipVideo.addEventListener("error", () => {
-    showStartButton("Video-Fehler (Datei nicht gefunden oder Ladefehler). Prüfe Namen: starship3.mp4");
-  });
-
-  btnStartVideo.addEventListener("click", () => {
-    videoStartOverlay.style.display="none";
-    starshipVideo.muted = false;
-    starshipVideo.volume = 1.0;
-    try { starshipVideo.play(); } catch(e) {}
-  });
-
-  starshipVideo.addEventListener("ended", () => {
-    videoOverlay.style.display="none";
-    videoStartOverlay.style.display="none";
-    canvas.classList.remove("hidden");
-    document.getElementById("topTime").classList.remove("hidden");
-    document.getElementById("controls").classList.remove("hidden");
-  });
+  // Prüfe, ob die Datei wirklich erreichbar ist (sonst sofort klare Meldung)
+  async function checkVideoReachable(){
+    try{
+      const res = await fetch(VIDEO_SRC, { method: "HEAD", cache: "no-store" });
+      return res.ok;
+    }catch(e){
+      return false;
+    }
+  }
 
   function resetVideoState(){
-    videoStarted=false;
+    videoStarted = false;
     videoOverlay.style.display="none";
-    videoStartOverlay.style.display="none";
-    clearTimeout(playWatchdog); playWatchdog=null;
+    videoHint.style.display="none";
+    hideError();
     try{ starshipVideo.pause(); }catch(e){}
+    starshipVideo.removeAttribute("src");
+    videoSource.src = "";
+    try{ starshipVideo.load(); }catch(e){}
+
     canvas.classList.remove("hidden");
     document.getElementById("topTime").classList.remove("hidden");
     document.getElementById("controls").classList.remove("hidden");
   }
+
+  // Startlogik: garantiert Bild => autoplay muted, dann Tap für Ton (Policy-sicher)
+  async function startVideoRobust(){
+    hideError();
+
+    const ok = await checkVideoReachable();
+    if(!ok){
+      showError(`<b>Video nicht erreichbar</b><br>
+        Datei <code>${VIDEO_FILE}</code> wird nicht gefunden oder nicht ausgeliefert.<br>
+        Prüfe: liegt sie wirklich im Hauptordner und heißt exakt so (kleinschreibung)?`);
+      // UI wieder zeigen
+      resetVideoState();
+      return;
+    }
+
+    videoOverlay.style.display = "block";
+    videoHint.style.display = "flex";
+
+    // Quelle setzen + laden
+    videoSource.src = VIDEO_SRC;
+    starshipVideo.load();
+    starshipVideo.currentTime = 0;
+
+    // Schritt 1: sicher starten (muted), damit Bild läuft
+    starshipVideo.muted = true;
+    starshipVideo.volume = 0;
+
+    let started = false;
+    try{
+      const p = starshipVideo.play();
+      if (p && typeof p.then === "function") {
+        await p;
+      }
+      started = true;
+    }catch(e){
+      started = false;
+    }
+
+    // Wenn sogar muted nicht läuft, zeigen wir Fehler
+    setTimeout(() => {
+      const notPlaying = starshipVideo.paused || starshipVideo.readyState < 2;
+      if (!started || notPlaying){
+        showError(`<b>Video startet nicht</b><br>
+          Obwohl die Datei erreichbar ist, startet das Video nicht (Browser blockiert oder lädt nicht korrekt).<br>
+          Tipp: öffne <code>${VIDEO_FILE}</code> direkt im Browser, um es zu testen.`);
+        // UI zurück
+        resetVideoState();
+      }
+    }, 900);
+
+    // Hinweistext passend
+    hintText.textContent = "🔊 Tippen für Ton";
+  }
+
+  // Tap auf dem Video-Overlay schaltet Ton an (User Gesture => Chrome erlaubt)
+  videoHint.addEventListener("click", async () => {
+    try{
+      starshipVideo.muted = false;
+      starshipVideo.volume = 1.0;
+
+      // Manche Browser brauchen nochmal play() nach unmute
+      if (starshipVideo.paused) {
+        await starshipVideo.play();
+      }
+
+      // Hinweis ausblenden, wenn Ton aktiv
+      videoHint.style.display = "none";
+    }catch(e){
+      // Wenn es trotzdem nicht geht: Hinweis bleibt
+      hintText.textContent = "Bitte nochmal tippen (Ton blockiert)";
+    }
+  });
+
+  // Wenn Video endet -> Timer wieder zeigen
+  starshipVideo.addEventListener("ended", () => {
+    resetVideoState();
+  });
+
+  // Bei Video error -> Meldung statt schwarz
+  starshipVideo.addEventListener("error", () => {
+    showError(`<b>Video-Fehler</b><br>
+      Browser meldet einen Fehler beim Laden/Abspielen der Datei <code>${VIDEO_FILE}</code>.`);
+    resetVideoState();
+  });
 
   function hideTimerShowVideo(){
     if(videoStarted) return;
-    videoStarted=true;
+    videoStarted = true;
 
     document.getElementById("topTime").classList.add("hidden");
     document.getElementById("controls").classList.add("hidden");
     canvas.classList.add("hidden");
 
-    videoOverlay.style.display="block";
-    videoStartOverlay.style.display="none";
-
-    starshipVideo.src = VIDEO_SRC;
-    starshipVideo.load();
-    starshipVideo.currentTime = 0;
-
-    // Ton an (Wunsch)
-    starshipVideo.muted = false;
-    starshipVideo.volume = 1.0;
-
-    // Versuch 1: direkt mit Ton
-    let played = false;
-    try {
-      const p = starshipVideo.play();
-      played = true;
-      if (p && typeof p.catch === "function") {
-        p.catch(() => {
-          // Versuch 2: Autoplay muted (damit wenigstens Bild läuft),
-          // dann Start-Button für Ton.
-          try {
-            starshipVideo.muted = true;
-            starshipVideo.volume = 0;
-            const p2 = starshipVideo.play();
-            if (p2 && typeof p2.catch === "function") {
-              p2.catch(() => showStartButton("Autoplay blockiert. Bitte einmal tippen (Ton)."));
-            } else {
-              showStartButton("Bitte einmal tippen (Ton).");
-            }
-          } catch(e2) {
-            showStartButton("Bitte einmal tippen (Ton).");
-          }
-        });
-      }
-    } catch(e) {
-      showStartButton("Bitte einmal tippen (Ton).");
-    }
-
-    // Watchdog (für Browser ohne Promise / trotzdem blockiert)
-    clearTimeout(playWatchdog);
-    playWatchdog = setTimeout(() => {
-      const notPlaying = starshipVideo.paused || starshipVideo.currentTime === 0;
-      if (notPlaying) showStartButton("Browser blockiert Start. Bitte einmal tippen.");
-    }, 900);
+    startVideoRobust();
   }
 
-  // Audio “Merken” via WebAudio unlock
-  const AUDIO_KEY="wandTimer_audioPrimed_v3";
-  let audioPrimed=(localStorage.getItem(AUDIO_KEY)==="1");
-
-  const audioPrimeOverlay=document.getElementById("audioPrimeOverlay");
-  const btnPrimeAudio=document.getElementById("btnPrimeAudio");
-  const primeStatus=document.getElementById("primeStatus");
-  let audioCtx=null;
-
-  function showPrimeOverlayIfNeeded(){
-    audioPrimeOverlay.style.display = audioPrimed ? "none" : "flex";
-    primeStatus.textContent = "";
-  }
-
-  async function primeAudio(){
-    primeStatus.textContent="Aktiviere Audio…";
-    try{
-      const AC = window.AudioContext || window.webkitAudioContext;
-      if(!AC){ primeStatus.textContent="WebAudio nicht verfügbar."; return; }
-      if(!audioCtx) audioCtx = new AC();
-      if(audioCtx.state==="suspended" && audioCtx.resume) await audioCtx.resume();
-
-      const osc=audioCtx.createOscillator();
-      const gain=audioCtx.createGain();
-      gain.gain.value=0.0;
-      osc.connect(gain); gain.connect(audioCtx.destination);
-      osc.start(); osc.stop(audioCtx.currentTime + 0.05);
-
-      audioPrimed = true;
-      localStorage.setItem(AUDIO_KEY,"1");
-      audioPrimeOverlay.style.display="none";
-      primeStatus.textContent="";
-    }catch(e){
-      primeStatus.textContent="Audio konnte nicht aktiviert werden. Bitte nochmal tippen.";
-    }
-  }
-  btnPrimeAudio.addEventListener("click", primeAudio);
-
-  // Automatik
   function applyDailyAutomation(now=new Date()){
     const key=todayKey(now), h=now.getHours(), m=now.getMinutes();
 
@@ -346,7 +345,6 @@
 
     drawMinuteLabel(45); drawMinuteLabel(30); drawMinuteLabel(15);
   }
-
   function drawMinuteLabel(minute){
     const angle=(minute/60)*2*Math.PI - Math.PI/2;
     const radius=305;
@@ -356,7 +354,6 @@
     ctx.textAlign="center"; ctx.textBaseline="middle";
     ctx.fillText(minute,x,y);
   }
-
   function drawTimerArc(){
     const progress=remaining/totalTime;
     const angle=progress*2*Math.PI;
@@ -366,19 +363,16 @@
     ctx.fillStyle=getColor(remaining);
     ctx.globalAlpha=0.92; ctx.fill(); ctx.globalAlpha=1;
   }
-
   function formatMMSS(sec){
     const mm=Math.floor(sec/60), ss=sec%60;
     return `${mm}:${String(ss).padStart(2,"0")}`;
   }
-
   function drawRemaining(){
     ctx.fillStyle="rgba(0,0,0,0.78)";
     ctx.font="bold 86px Arial";
     ctx.textAlign="center"; ctx.textBaseline="middle";
     ctx.fillText(formatMMSS(remaining), 400, 410);
   }
-
   function draw(){
     if(!canvas.classList.contains("hidden")){
       ctx.clearRect(0,0,800,800);
@@ -387,12 +381,10 @@
     requestAnimationFrame(draw);
   }
 
-  // Tick: Video bei 10s (synchron)
+  // Tick: Video genau bei 10s (vor decrement)
   function tick(){
     applyDailyAutomation(new Date());
-
     if(running && remaining > 0){
-      // wenn jetzt gerade 10s verbleiben -> Video starten (bevor wir runterzählen)
       if(remaining === 10){
         hideTimerShowVideo();
       }
@@ -401,7 +393,7 @@
     }
   }
 
-  // Bedienung: Minuten + Sekunden
+  // Bedienung: Minuten + Sekunden (15 Sekunden möglich)
   const minutesInput=document.getElementById("minutesInput");
   const secondsInput=document.getElementById("secondsInput");
   let lastMin=minutesInput.value, lastSec=secondsInput.value;
@@ -420,7 +412,7 @@
 
     resetVideoState();
     remaining = mins*60 + secs;
-    if (remaining <= 0) remaining = 1; // nicht 0 setzen
+    if (remaining <= 0) remaining = 1;
   }
 
   function toggleTimer(){ running = !running; }
@@ -434,11 +426,9 @@
     toggleTimer();
   });
 
-  // Felder schützen
   function protectFocus(inputEl, which){
     if(which==="min") lastMin = minutesInput.value;
     if(which==="sec") lastSec = secondsInput.value;
-
     if(!requireUnlock()){
       setTimeout(()=>{
         minutesInput.value = lastMin;
@@ -449,7 +439,6 @@
   }
   minutesInput.addEventListener("focus",()=>protectFocus(minutesInput,"min"));
   secondsInput.addEventListener("focus",()=>protectFocus(secondsInput,"sec"));
-
   minutesInput.addEventListener("change",()=>{ if(!isUnlocked()) minutesInput.value = lastMin; else lastMin = minutesInput.value; });
   secondsInput.addEventListener("change",()=>{ if(!isUnlocked()) secondsInput.value = lastSec; else lastSec = secondsInput.value; });
 
@@ -468,12 +457,6 @@
   updateLockUI();
   applyDailyAutomation(new Date());
   draw();
-
-  // Audio-Prime nur wenn noch nicht gemerkt
-  showPrimeOverlayIfNeeded();
 </script>
 </body>
 </html>
-
-
-
