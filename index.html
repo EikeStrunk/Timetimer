@@ -146,11 +146,10 @@ const ctx = canvas.getContext("2d");
 canvas.width = 800;
 canvas.height = 800;
 
-let totalTime = 60 * 60;     // 60min Skala
+let totalTime = 60 * 60;
 let remaining = 45 * 60;
 let running = false;
 
-// Countdown speech sync
 let lastSpoken = null;
 
 // Version A Zeitautomatik
@@ -169,9 +168,8 @@ function applyDailyAutomation(now = new Date()) {
   const h = now.getHours();
   const m = now.getMinutes();
 
-  // 07:15 -> 45min + Start
   if (h === AUTO_START_H && m === AUTO_START_M && lastAutoStartKey !== key) {
-    stopRocketShow(); // falls Film noch offen
+    stopRocketFilm(true); // zurück zur Uhr, falls Film läuft
     remaining = MORNING_MINUTES * 60;
     minutesInput.value = String(MORNING_MINUTES);
     secondsInput.value = "0";
@@ -179,9 +177,8 @@ function applyDailyAutomation(now = new Date()) {
     lastAutoStartKey = key;
   }
 
-  // 08:00 -> 0 + Stop
   if (h === AUTO_ZERO_H && m === AUTO_ZERO_M && lastAutoZeroKey !== key) {
-    stopRocketShow();
+    stopRocketFilm(true);
     remaining = 0;
     running = false;
     lastAutoZeroKey = key;
@@ -189,10 +186,10 @@ function applyDailyAutomation(now = new Date()) {
 }
 
 function getColor(secondsLeft) {
-  if (secondsLeft > 45 * 60) return "#1a73e8";  // blau
-  if (secondsLeft > 30 * 60) return "#3cb371";  // grün
-  if (secondsLeft > 15 * 60) return "#e6b800";  // gelb
-  return "#d64545";                             // rot
+  if (secondsLeft > 45 * 60) return "#1a73e8";
+  if (secondsLeft > 30 * 60) return "#3cb371";
+  if (secondsLeft > 15 * 60) return "#e6b800";
+  return "#d64545";
 }
 
 function drawClockFace() {
@@ -299,7 +296,7 @@ function beep(freq=880, ms=110, gain=0.06) {
   osc.stop(t0 + ms/1000);
 }
 
-function rumble(ms=1400) {
+function rumble(ms=1600) {
   ensureAudio();
   if (!audioCtx) return;
   const t0 = audioCtx.currentTime;
@@ -315,7 +312,7 @@ function rumble(ms=1400) {
 
   const filter = audioCtx.createBiquadFilter();
   filter.type = "lowpass";
-  filter.frequency.value = 160;
+  filter.frequency.value = 150;
 
   const g = audioCtx.createGain();
   g.gain.value = 0.001;
@@ -358,10 +355,9 @@ function startEngineHum() {
   ensureAudio();
   if (!audioCtx || engineNodes) return;
 
-  // noise + lowpass + subtle tone
   const noiseBuf = audioCtx.createBuffer(1, audioCtx.sampleRate * 2, audioCtx.sampleRate);
   const data = noiseBuf.getChannelData(0);
-  for (let i=0; i<data.length; i++) data[i] = (Math.random()*2-1) * 0.6;
+  for (let i=0; i<data.length; i++) data[i] = (Math.random()*2-1) * 0.55;
 
   const noise = audioCtx.createBufferSource();
   noise.buffer = noiseBuf;
@@ -369,11 +365,11 @@ function startEngineHum() {
 
   const lp = audioCtx.createBiquadFilter();
   lp.type = "lowpass";
-  lp.frequency.value = 220;
+  lp.frequency.value = 210;
 
   const tone = audioCtx.createOscillator();
   tone.type = "sine";
-  tone.frequency.value = 62;
+  tone.frequency.value = 58;
 
   const g = audioCtx.createGain();
   g.gain.value = 0.0001;
@@ -423,7 +419,7 @@ function speakNumber(n) {
 }
 
 /* =========================
-   Cinematic Rocket Film (60s)
+   Cinematic Starship Film (60s + idle stars)
 ========================= */
 const rocketOverlay = document.getElementById("rocketOverlay");
 const rocketCanvas = document.getElementById("rocketCanvas");
@@ -433,8 +429,9 @@ const cinematicHud = document.getElementById("cinematicHud");
 const countText = document.getElementById("countText");
 
 let rocketRAF = null;
-let rocketRunning = false;
+let filmMode = "off"; // "film" | "idle" | "off"
 let filmStart = 0;
+let idleStart = 0;
 
 let starsFar = [];
 let starsMid = [];
@@ -447,7 +444,7 @@ function resizeRocketCanvas() {
   rocketCanvas.height = Math.floor(window.innerHeight * devicePixelRatio);
 }
 window.addEventListener("resize", () => {
-  if (rocketRunning) {
+  if (filmMode !== "off") {
     resizeRocketCanvas();
     initStarfields();
   }
@@ -484,11 +481,11 @@ function spawnSmoke(x,y,intensity=1) {
   for (let i=0; i<n; i++) {
     smoke.push({
       x, y,
-      vx: (Math.random()*2-1) * (2.2*devicePixelRatio) * intensity,
-      vy: (Math.random()*1.2 + 2.4) * devicePixelRatio,
+      vx: (Math.random()*2-1) * (2.0*devicePixelRatio) * intensity,
+      vy: (Math.random()*1.2 + 2.2) * devicePixelRatio,
       r: (Math.random()*18 + 14) * devicePixelRatio * (0.9 + 0.4*intensity),
-      a: 0.50,
-      life: Math.random()*70 + 60
+      a: 0.48,
+      life: Math.random()*80 + 70
     });
   }
 }
@@ -497,8 +494,8 @@ function spawnSparks(x,y,amount=10) {
   for (let i=0; i<amount; i++) {
     sparks.push({
       x, y,
-      vx: (Math.random()*2-1) * 5.5 * devicePixelRatio,
-      vy: (Math.random()*-1.5 - 3.0) * devicePixelRatio,
+      vx: (Math.random()*2-1) * 5.0 * devicePixelRatio,
+      vy: (Math.random()*-1.5 - 2.8) * devicePixelRatio,
       a: 0.9,
       life: Math.random()*25 + 20
     });
@@ -506,7 +503,6 @@ function spawnSparks(x,y,amount=10) {
 }
 
 function drawNebula(t, w, h) {
-  // soft moving fog layers
   const g1 = rctx.createRadialGradient(w*0.25, h*0.35, 0, w*0.25, h*0.35, w*0.65);
   g1.addColorStop(0, `rgba(120,80,255,${0.08 + 0.02*Math.sin(t*0.3)})`);
   g1.addColorStop(1, "rgba(0,0,0,0)");
@@ -521,129 +517,58 @@ function drawNebula(t, w, h) {
 }
 
 function drawPlanet(t,w,h) {
-  // far planet drifting slowly
   const px = w*0.82 + Math.sin(t*0.04)*w*0.02;
   const py = h*0.74 + Math.cos(t*0.03)*h*0.02;
   const pr = Math.min(w,h)*0.22;
 
-  // shadow
   rctx.beginPath();
   rctx.arc(px,py,pr,0,Math.PI*2);
   const pg = rctx.createRadialGradient(px-pr*0.25, py-pr*0.15, pr*0.2, px, py, pr);
-  pg.addColorStop(0, "rgba(160,190,255,0.20)");
-  pg.addColorStop(0.55, "rgba(40,60,120,0.12)");
+  pg.addColorStop(0, "rgba(180,200,255,0.18)");
+  pg.addColorStop(0.55, "rgba(40,60,120,0.11)");
   pg.addColorStop(1, "rgba(0,0,0,0.0)");
   rctx.fillStyle = pg;
   rctx.fill();
 
-  // rim light
   rctx.beginPath();
   rctx.arc(px,py,pr*1.02,0,Math.PI*2);
-  rctx.strokeStyle = "rgba(160,190,255,0.12)";
+  rctx.strokeStyle = "rgba(160,190,255,0.11)";
   rctx.lineWidth = 3*devicePixelRatio;
   rctx.stroke();
 }
 
 function drawStars(arr, t, dx, dy) {
+  const w = rocketCanvas.width, h = rocketCanvas.height;
+  const wrap = (v, max) => (v % max + max) % max;
+
   for (const st of arr) {
     const tw = 0.55 + 0.45*Math.sin(t*st.tw + st.x*0.001);
+    const x = wrap(st.x + dx, w);
+    const y = wrap(st.y + dy, h);
+
     rctx.beginPath();
-    rctx.arc(st.x + dx, st.y + dy, st.r, 0, Math.PI*2);
+    rctx.arc(x, y, st.r, 0, Math.PI*2);
     rctx.fillStyle = `rgba(255,255,255,${st.a*tw})`;
     rctx.fill();
   }
 }
 
-function drawRocket(x, y, s, flame=1) {
-  rctx.save();
-  rctx.translate(x, y);
-  rctx.scale(s, s);
-
-  // engine plume (animated)
-  const f = flame;
-  rctx.beginPath();
-  rctx.moveTo(0, 86);
-  rctx.quadraticCurveTo(-16, 120 + 18*f, 0, 155 + 22*f);
-  rctx.quadraticCurveTo(16, 120 + 18*f, 0, 86);
-  rctx.fillStyle = `rgba(255,160,40,${0.72})`;
-  rctx.fill();
-
-  rctx.beginPath();
-  rctx.moveTo(0, 98);
-  rctx.quadraticCurveTo(-9, 122 + 12*f, 0, 142 + 16*f);
-  rctx.quadraticCurveTo(9, 122 + 12*f, 0, 98);
-  rctx.fillStyle = `rgba(255,245,210,${0.78})`;
-  rctx.fill();
-
-  // body
-  rctx.beginPath();
-  rctx.roundRect(-18, -30, 36, 116, 16);
-  rctx.fillStyle = "rgba(240,242,246,0.98)";
-  rctx.fill();
-
-  // subtle shading
-  const lg = rctx.createLinearGradient(-18,0,18,0);
-  lg.addColorStop(0,"rgba(0,0,0,0.10)");
-  lg.addColorStop(0.4,"rgba(255,255,255,0.02)");
-  lg.addColorStop(1,"rgba(0,0,0,0.18)");
-  rctx.fillStyle = lg;
-  rctx.fillRect(-18,-30,36,116);
-
-  // window
-  rctx.beginPath();
-  rctx.arc(0, 12, 10, 0, Math.PI*2);
-  rctx.fillStyle = "rgba(30,120,220,0.92)";
-  rctx.fill();
-  rctx.lineWidth = 2;
-  rctx.strokeStyle = "rgba(0,0,0,0.15)";
-  rctx.stroke();
-
-  // nose
-  rctx.beginPath();
-  rctx.moveTo(-18, -30);
-  rctx.quadraticCurveTo(0, -74, 18, -30);
-  rctx.closePath();
-  rctx.fillStyle = "rgba(220,40,60,0.96)";
-  rctx.fill();
-
-  // fins
-  rctx.beginPath();
-  rctx.moveTo(-18, 62);
-  rctx.lineTo(-42, 86);
-  rctx.lineTo(-18, 86);
-  rctx.closePath();
-  rctx.fillStyle = "rgba(220,40,60,0.96)";
-  rctx.fill();
-
-  rctx.beginPath();
-  rctx.moveTo(18, 62);
-  rctx.lineTo(42, 86);
-  rctx.lineTo(18, 86);
-  rctx.closePath();
-  rctx.fillStyle = "rgba(220,40,60,0.96)";
-  rctx.fill();
-
-  rctx.restore();
-}
-
 function updateParticles() {
-  // smoke
   for (let i=smoke.length-1; i>=0; i--) {
     const p = smoke[i];
     p.x += p.vx;
     p.y += p.vy;
-    p.vy += 0.06 * devicePixelRatio;
-    p.r *= 0.986;
-    p.a *= 0.987;
+    p.vy += 0.05 * devicePixelRatio;
+    p.r *= 0.987;
+    p.a *= 0.988;
     p.life -= 1;
     if (p.life <= 0 || p.a < 0.02 || p.r < 1) smoke.splice(i,1);
   }
-  // sparks
   for (let i=sparks.length-1; i>=0; i--) {
     const s = sparks[i];
     s.x += s.vx;
     s.y += s.vy;
-    s.vy += 0.18 * devicePixelRatio;
+    s.vy += 0.16 * devicePixelRatio;
     s.a *= 0.95;
     s.life -= 1;
     if (s.life <= 0 || s.a < 0.03) sparks.splice(i,1);
@@ -651,14 +576,12 @@ function updateParticles() {
 }
 
 function drawParticles() {
-  // smoke
   for (const p of smoke) {
     rctx.beginPath();
     rctx.arc(p.x, p.y, p.r, 0, Math.PI*2);
     rctx.fillStyle = `rgba(220,230,240,${p.a})`;
     rctx.fill();
   }
-  // sparks
   for (const s of sparks) {
     rctx.beginPath();
     rctx.arc(s.x, s.y, 2.0*devicePixelRatio, 0, Math.PI*2);
@@ -667,28 +590,211 @@ function drawParticles() {
   }
 }
 
-function rocketLoop(ts) {
-  if (!rocketRunning) return;
-  if (!filmStart) filmStart = ts;
-  const t = (ts - filmStart) / 1000; // seconds
+/* --- Starship-ish rocket drawing (2D, more realistic silhouette) --- */
+function drawStarship(x, y, scale, phaseT, phase) {
+  // phase: "launch" | "climb" | "cruise" | "idle"
+  const s = scale;
+  rctx.save();
+  rctx.translate(x, y);
+  rctx.scale(s, s);
+
+  // body dims (Starship silhouette)
+  const bodyW = 34;
+  const bodyH = 160;
+  const topY = -90;
+  const left = -bodyW/2;
+
+  // stainless gradient
+  const steel = rctx.createLinearGradient(left, 0, left + bodyW, 0);
+  steel.addColorStop(0.0, "rgba(200,205,210,0.96)");
+  steel.addColorStop(0.22, "rgba(245,246,248,0.98)");
+  steel.addColorStop(0.52, "rgba(185,190,196,0.96)");
+  steel.addColorStop(0.76, "rgba(255,255,255,0.94)");
+  steel.addColorStop(1.0, "rgba(165,170,176,0.96)");
+
+  // main body
+  rctx.beginPath();
+  rctx.roundRect(left, topY, bodyW, bodyH, 14);
+  rctx.fillStyle = steel;
+  rctx.fill();
+
+  // panel/tiling lines (subtle)
+  rctx.globalAlpha = 0.22;
+  rctx.strokeStyle = "rgba(0,0,0,0.35)";
+  rctx.lineWidth = 1;
+  for (let yy = topY + 18; yy < topY + bodyH - 10; yy += 16) {
+    rctx.beginPath();
+    rctx.moveTo(left + 4, yy);
+    rctx.lineTo(left + bodyW - 4, yy);
+    rctx.stroke();
+  }
+  rctx.globalAlpha = 1;
+
+  // nose cone (ogive-ish)
+  rctx.beginPath();
+  rctx.moveTo(left, topY + 6);
+  rctx.quadraticCurveTo(0, topY - 58, left + bodyW, topY + 6);
+  rctx.closePath();
+  rctx.fillStyle = steel;
+  rctx.fill();
+
+  // black thermal tiles band (suggestion)
+  rctx.globalAlpha = 0.12;
+  rctx.fillStyle = "rgba(0,0,0,1)";
+  rctx.fillRect(left + 2, topY + 88, bodyW - 4, 22);
+  rctx.globalAlpha = 1;
+
+  // flaps (Starship-like)
+  // forward flap (upper) + aft flap (lower)
+  const flapColor = "rgba(60,65,72,0.9)";
+  // left forward flap
+  rctx.beginPath();
+  rctx.moveTo(left, topY + 32);
+  rctx.lineTo(left - 18, topY + 44);
+  rctx.lineTo(left, topY + 54);
+  rctx.closePath();
+  rctx.fillStyle = flapColor;
+  rctx.fill();
+
+  // right forward flap
+  rctx.beginPath();
+  rctx.moveTo(left + bodyW, topY + 32);
+  rctx.lineTo(left + bodyW + 18, topY + 44);
+  rctx.lineTo(left + bodyW, topY + 54);
+  rctx.closePath();
+  rctx.fillStyle = flapColor;
+  rctx.fill();
+
+  // left aft flap
+  rctx.beginPath();
+  rctx.moveTo(left, topY + 124);
+  rctx.lineTo(left - 20, topY + 138);
+  rctx.lineTo(left, topY + 150);
+  rctx.closePath();
+  rctx.fillStyle = flapColor;
+  rctx.fill();
+
+  // right aft flap
+  rctx.beginPath();
+  rctx.moveTo(left + bodyW, topY + 124);
+  rctx.lineTo(left + bodyW + 20, topY + 138);
+  rctx.lineTo(left + bodyW, topY + 150);
+  rctx.closePath();
+  rctx.fillStyle = flapColor;
+  rctx.fill();
+
+  // header “black” section suggestion
+  rctx.globalAlpha = 0.18;
+  rctx.fillStyle = "rgba(0,0,0,1)";
+  rctx.beginPath();
+  rctx.roundRect(left + 4, topY + 10, bodyW - 8, 20, 10);
+  rctx.fill();
+  rctx.globalAlpha = 1;
+
+  // engine section
+  const engineY = topY + bodyH - 4;
+  rctx.globalAlpha = 0.35;
+  rctx.fillStyle = "rgba(0,0,0,1)";
+  rctx.beginPath();
+  rctx.roundRect(left + 4, engineY - 14, bodyW - 8, 14, 8);
+  rctx.fill();
+  rctx.globalAlpha = 1;
+
+  // plume (phase dependent)
+  if (phase !== "idle") {
+    const wobble = 0.35 + 0.15*Math.sin(phaseT*12);
+    const flameLen = (phase === "launch") ? (85 + 35*wobble) : (phase === "climb") ? (55 + 18*wobble) : (42 + 14*wobble);
+
+    // outer glow
+    rctx.beginPath();
+    rctx.moveTo(0, engineY);
+    rctx.quadraticCurveTo(-18, engineY + flameLen*0.55, 0, engineY + flameLen);
+    rctx.quadraticCurveTo(18, engineY + flameLen*0.55, 0, engineY);
+    rctx.fillStyle = (phase === "cruise")
+      ? "rgba(120,200,255,0.22)"   // bläulicher
+      : "rgba(255,170,60,0.28)";
+    rctx.fill();
+
+    // inner core
+    rctx.beginPath();
+    rctx.moveTo(0, engineY + 2);
+    rctx.quadraticCurveTo(-9, engineY + flameLen*0.50, 0, engineY + flameLen*0.78);
+    rctx.quadraticCurveTo(9, engineY + flameLen*0.50, 0, engineY + 2);
+    rctx.fillStyle = (phase === "cruise")
+      ? "rgba(210,245,255,0.72)"
+      : "rgba(255,245,210,0.75)";
+    rctx.fill();
+  }
+
+  rctx.restore();
+}
+
+function drawVignette(w,h){
+  const vg = rctx.createRadialGradient(w*0.5, h*0.5, Math.min(w,h)*0.15, w*0.5, h*0.5, Math.max(w,h)*0.65);
+  vg.addColorStop(0, "rgba(0,0,0,0)");
+  vg.addColorStop(1, "rgba(0,0,0,0.35)");
+  rctx.fillStyle = vg;
+  rctx.fillRect(0,0,w,h);
+}
+
+function filmFrame(ts) {
+  if (filmMode === "off") return;
 
   const w = rocketCanvas.width;
   const h = rocketCanvas.height;
 
-  // stop after 60 seconds (as requested)
-  if (t >= 60) {
-    stopRocketShow();
+  const now = ts;
+
+  if (filmMode === "idle") {
+    if (!idleStart) idleStart = now;
+    const t = (now - idleStart) / 1000;
+
+    rctx.clearRect(0,0,w,h);
+    drawNebula(t,w,h);
+    drawPlanet(t,w,h);
+
+    // very slow drift in idle
+    const farDx  = -t * 1.2 * devicePixelRatio;
+    const farDy  =  t * 0.5 * devicePixelRatio;
+    const midDx  = -t * 2.2 * devicePixelRatio;
+    const midDy  =  t * 0.8 * devicePixelRatio;
+    const nearDx = -t * 3.6 * devicePixelRatio;
+    const nearDy =  t * 1.2 * devicePixelRatio;
+
+    drawStars(starsFar,  t, farDx,  farDy);
+    drawStars(starsMid,  t, midDx,  midDy);
+    drawStars(starsNear, t, nearDx, nearDy);
+
+    drawVignette(w,h);
+
+    rocketRAF = requestAnimationFrame(filmFrame);
     return;
   }
 
-  // cinematic camera drift
+  // film mode
+  if (!filmStart) filmStart = now;
+  const t = (now - filmStart) / 1000;
+
+  // after 60s: switch to idle starfield (no return to timer)
+  if (t >= 60) {
+    stopEngineHum();
+    filmMode = "idle";
+    idleStart = 0;
+    // keep overlay up, HUD off
+    cinematicHud.style.display = "none";
+    rocketRAF = requestAnimationFrame(filmFrame);
+    return;
+  }
+
+  // camera drift
   const camDriftX = Math.sin(t*0.12) * 18 * devicePixelRatio;
   const camDriftY = Math.cos(t*0.10) * 12 * devicePixelRatio;
 
-  // background clear
   rctx.clearRect(0,0,w,h);
+  drawNebula(t,w,h);
+  drawPlanet(t,w,h);
 
-  // star parallax (far moves least, near most)
+  // star parallax
   const farDx  = -t * 6  * devicePixelRatio + camDriftX*0.15;
   const farDy  =  t * 2  * devicePixelRatio + camDriftY*0.15;
   const midDx  = -t * 14 * devicePixelRatio + camDriftX*0.30;
@@ -696,111 +802,87 @@ function rocketLoop(ts) {
   const nearDx = -t * 28 * devicePixelRatio + camDriftX*0.55;
   const nearDy =  t * 10 * devicePixelRatio + camDriftY*0.55;
 
-  drawNebula(t,w,h);
-  drawPlanet(t,w,h);
-
   drawStars(starsFar,  t, farDx,  farDy);
   drawStars(starsMid,  t, midDx,  midDy);
   drawStars(starsNear, t, nearDx, nearDy);
 
   // phases
-  // 0..8s launch, 8..18s upper-atmosphere, 18..60s cruise
+  let phase = "cruise";
   let rocketX = w*0.5 + Math.sin(t*0.7) * 20 * devicePixelRatio + camDriftX;
   let rocketY;
 
   if (t < 8) {
-    // launch: accelerate upward from near bottom
+    phase = "launch";
     const k = t/8;
     rocketY = h*0.78 - (k*k) * (h*0.55) + camDriftY;
-    spawnSmoke(rocketX, rocketY + 150*devicePixelRatio, 1.2);
-    if (t < 2.5) spawnSparks(rocketX, rocketY + 140*devicePixelRatio, 6);
+    spawnSmoke(rocketX, rocketY + 170*devicePixelRatio, 1.15);
+    if (t < 2.5) spawnSparks(rocketX, rocketY + 160*devicePixelRatio, 6);
   } else if (t < 18) {
-    // climb to space
+    phase = "climb";
     const k = (t-8)/10;
     rocketY = h*0.23 - (k) * (h*0.12) + camDriftY;
-    spawnSmoke(rocketX, rocketY + 140*devicePixelRatio, 0.65);
+    spawnSmoke(rocketX, rocketY + 150*devicePixelRatio, 0.62);
   } else {
-    // cruise: keep rocket near center-left, stars move faster
-    const k = (t-18)/42;
+    phase = "cruise";
     rocketX = w*0.46 + Math.sin(t*0.9) * 28 * devicePixelRatio + camDriftX;
     rocketY = h*0.42 + Math.cos(t*0.7) * 22 * devicePixelRatio + camDriftY;
-
-    // engine trail in space (less smoke, more glow)
-    spawnSmoke(rocketX - 10*devicePixelRatio, rocketY + 150*devicePixelRatio, 0.35);
+    spawnSmoke(rocketX - 10*devicePixelRatio, rocketY + 170*devicePixelRatio, 0.30);
   }
 
-  // update & draw particles
   updateParticles();
   drawParticles();
 
-  // engine flame intensity
-  const flame = (t < 8) ? (1.1 + 0.35*Math.sin(t*12)) : (0.55 + 0.18*Math.sin(t*10));
+  drawVignette(w,h);
 
-  // subtle vignette
-  const vg = rctx.createRadialGradient(w*0.5, h*0.5, Math.min(w,h)*0.15, w*0.5, h*0.5, Math.max(w,h)*0.65);
-  vg.addColorStop(0, "rgba(0,0,0,0)");
-  vg.addColorStop(1, "rgba(0,0,0,0.35)");
-  rctx.fillStyle = vg;
-  rctx.fillRect(0,0,w,h);
+  // draw starship
+  drawStarship(rocketX, rocketY, 1.55*devicePixelRatio, t, phase);
 
-  // rocket draw
-  drawRocket(rocketX, rocketY, 1.55*devicePixelRatio, flame);
-
-  // faint HUD line (cinematic)
-  rctx.globalAlpha = 0.25;
-  rctx.lineWidth = 2*devicePixelRatio;
-  rctx.strokeStyle = "rgba(255,255,255,0.18)";
-  rctx.beginPath();
-  rctx.moveTo(w*0.08, h*0.52);
-  rctx.lineTo(w*0.92, h*0.52);
-  rctx.stroke();
-  rctx.globalAlpha = 1;
-
-  rocketRAF = requestAnimationFrame(rocketLoop);
+  rocketRAF = requestAnimationFrame(filmFrame);
 }
 
-function startRocketShow() {
-  // hide everything (timer fully off)
+function startRocketFilm() {
   canvas.classList.add("hidden");
   document.getElementById("controls").classList.add("hidden");
   document.getElementById("topTime").classList.add("hidden");
 
   rocketOverlay.style.display = "block";
-  cinematicHud.style.display = "none"; // countdown hud controlled separately
+  cinematicHud.style.display = "none";
 
   resizeRocketCanvas();
   initStarfields();
   smoke = [];
   sparks = [];
   filmStart = 0;
-  rocketRunning = true;
+  idleStart = 0;
 
-  // sound: launch
+  filmMode = "film";
   rumble(1600);
   whoosh(1000);
   startEngineHum();
 
-  rocketRAF = requestAnimationFrame(rocketLoop);
+  if (rocketRAF) cancelAnimationFrame(rocketRAF);
+  rocketRAF = requestAnimationFrame(filmFrame);
 }
 
-function stopRocketShow() {
-  rocketRunning = false;
+// forceBackToTimer=true when daily automation hits
+function stopRocketFilm(forceBackToTimer=false) {
+  filmMode = "off";
   if (rocketRAF) cancelAnimationFrame(rocketRAF);
   rocketRAF = null;
-
-  rocketOverlay.style.display = "none";
   cinematicHud.style.display = "none";
-
   stopEngineHum();
 
-  // show timer UI again (timer stays at 0)
-  canvas.classList.remove("hidden");
-  document.getElementById("controls").classList.remove("hidden");
-  document.getElementById("topTime").classList.remove("hidden");
+  rocketOverlay.style.display = "none";
+
+  if (forceBackToTimer) {
+    canvas.classList.remove("hidden");
+    document.getElementById("controls").classList.remove("hidden");
+    document.getElementById("topTime").classList.remove("hidden");
+  }
 }
 
 /* =========================
-   Tick / Countdown / Start (SYNC FIX)
+   Countdown HUD + Tick (SYNC)
 ========================= */
 function showCountdownHud(n) {
   cinematicHud.style.display = "flex";
@@ -811,16 +893,18 @@ function hideCountdownHud() {
   cinematicHud.style.display = "none";
 }
 
-// IMPORTANT SYNC FIX:
-// We decrement first -> draw uses updated remaining -> we speak the same number.
 function tick() {
   applyDailyAutomation(new Date());
 
   if (running && remaining > 0) {
-    remaining--; // <-- decrement first (SYNC)
+    remaining--; // decrement first => sync
 
-    // countdown last 10 seconds (10..1)
     if (remaining <= 10 && remaining >= 1) {
+      // hide timer completely during countdown
+      canvas.classList.add("hidden");
+      document.getElementById("controls").classList.add("hidden");
+      document.getElementById("topTime").classList.add("hidden");
+
       showCountdownHud(remaining);
 
       if (lastSpoken !== remaining) {
@@ -829,6 +913,12 @@ function tick() {
         speakNumber(remaining);
       }
     } else {
+      // show timer if not in countdown and no film active
+      if (filmMode === "off") {
+        canvas.classList.remove("hidden");
+        document.getElementById("controls").classList.remove("hidden");
+        document.getElementById("topTime").classList.remove("hidden");
+      }
       hideCountdownHud();
       lastSpoken = null;
     }
@@ -841,8 +931,7 @@ function tick() {
       beep(1200, 180, 0.08);
       speakNumber(0);
 
-      // start 60s cinematic rocket film
-      startRocketShow();
+      startRocketFilm();
     }
   }
 }
@@ -865,7 +954,7 @@ function setTimer() {
   minutesInput.value = String(mins);
   secondsInput.value = String(secs);
 
-  stopRocketShow();
+  stopRocketFilm(true); // zurück zur Uhr
   remaining = mins*60 + secs;
   if (remaining <= 0) remaining = 1;
   lastSpoken = null;
@@ -883,7 +972,6 @@ document.getElementById("btnSet").addEventListener("click", () => {
 });
 document.getElementById("btnToggle").addEventListener("click", toggleTimer);
 
-// Preset: 15 Sekunden
 document.getElementById("btn15").addEventListener("click", () => {
   ensureAudio();
   minutesInput.value = "0";
