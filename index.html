@@ -115,7 +115,6 @@
 </head>
 
 <body>
-
 <div id="topTime"></div>
 <canvas id="timer"></canvas>
 
@@ -169,7 +168,7 @@ function applyDailyAutomation(now = new Date()) {
   const m = now.getMinutes();
 
   if (h === AUTO_START_H && m === AUTO_START_M && lastAutoStartKey !== key) {
-    stopRocketFilm(true); // zurück zur Uhr, falls Film läuft
+    stopRocketFilm(true);
     remaining = MORNING_MINUTES * 60;
     minutesInput.value = String(MORNING_MINUTES);
     secondsInput.value = "0";
@@ -262,10 +261,13 @@ function draw() {
 }
 
 /* =========================
-   Sound + Speech (synced)
+   Audio + Speech (iPad fix)
 ========================= */
 let audioCtx = null;
 let engineNodes = null;
+
+let speechPrimed = false;
+let chosenVoice = null;
 
 function ensureAudio() {
   if (!audioCtx) {
@@ -277,19 +279,56 @@ function ensureAudio() {
   }
 }
 
-function beep(freq=880, ms=110, gain=0.06) {
+function primeSpeechOnce() {
+  if (speechPrimed) return;
+  speechPrimed = true;
+
+  if (!("speechSynthesis" in window)) return;
+
+  // iOS: voices sometimes load async
+  const pickVoice = () => {
+    const voices = window.speechSynthesis.getVoices ? window.speechSynthesis.getVoices() : [];
+    if (voices && voices.length) {
+      chosenVoice =
+        voices.find(v => (v.lang || "").toLowerCase().startsWith("de")) ||
+        voices.find(v => (v.lang || "").toLowerCase().startsWith("en")) ||
+        voices[0] || null;
+    }
+  };
+
+  try { pickVoice(); } catch(e) {}
+
+  // "Prime" with a tiny utterance after user gesture.
+  try {
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(" ");
+    if (chosenVoice) u.voice = chosenVoice;
+    u.lang = (chosenVoice && chosenVoice.lang) ? chosenVoice.lang : "de-DE";
+    u.volume = 0.01;     // quasi stumm, aber triggert die Engine
+    u.rate = 1.0;
+    window.speechSynthesis.speak(u);
+    // optional cancel shortly after
+    setTimeout(() => {
+      try { window.speechSynthesis.cancel(); } catch(e) {}
+    }, 120);
+  } catch(e) {}
+}
+
+function beep(freq=880, ms=140, gain=0.14) {
+  // iPad-friendly: etwas lauter und länger
   ensureAudio();
   if (!audioCtx) return;
   const t0 = audioCtx.currentTime;
   const osc = audioCtx.createOscillator();
   const g = audioCtx.createGain();
+  osc.type = "sine";
   osc.frequency.value = freq;
-  g.gain.value = gain;
 
   osc.connect(g);
   g.connect(audioCtx.destination);
 
-  g.gain.setValueAtTime(gain, t0);
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.linearRampToValueAtTime(gain, t0 + 0.02);
   g.gain.exponentialRampToValueAtTime(0.0001, t0 + ms/1000);
 
   osc.start(t0);
@@ -312,18 +351,18 @@ function rumble(ms=1600) {
 
   const filter = audioCtx.createBiquadFilter();
   filter.type = "lowpass";
-  filter.frequency.value = 150;
+  filter.frequency.value = 140;
 
   const g = audioCtx.createGain();
-  g.gain.value = 0.001;
+  g.gain.value = 0.0001;
 
   noise.connect(filter);
   filter.connect(g);
   g.connect(audioCtx.destination);
 
-  g.gain.setValueAtTime(0.001, t0);
-  g.gain.linearRampToValueAtTime(0.12, t0 + 0.15);
-  g.gain.linearRampToValueAtTime(0.03, t0 + duration);
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.linearRampToValueAtTime(0.18, t0 + 0.15);
+  g.gain.linearRampToValueAtTime(0.05, t0 + duration);
 
   noise.start(t0);
   noise.stop(t0 + duration);
@@ -338,10 +377,10 @@ function whoosh(ms=900) {
   const g = audioCtx.createGain();
   osc.type = "sawtooth";
   osc.frequency.setValueAtTime(240, t0);
-  osc.frequency.exponentialRampToValueAtTime(60, t0 + ms/1000);
+  osc.frequency.exponentialRampToValueAtTime(70, t0 + ms/1000);
 
-  g.gain.setValueAtTime(0.001, t0);
-  g.gain.linearRampToValueAtTime(0.07, t0 + 0.10);
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.linearRampToValueAtTime(0.12, t0 + 0.10);
   g.gain.exponentialRampToValueAtTime(0.0001, t0 + ms/1000);
 
   osc.connect(g);
@@ -365,7 +404,7 @@ function startEngineHum() {
 
   const lp = audioCtx.createBiquadFilter();
   lp.type = "lowpass";
-  lp.frequency.value = 210;
+  lp.frequency.value = 220;
 
   const tone = audioCtx.createOscillator();
   tone.type = "sine";
@@ -381,7 +420,7 @@ function startEngineHum() {
 
   const t0 = audioCtx.currentTime;
   g.gain.setValueAtTime(0.0001, t0);
-  g.gain.linearRampToValueAtTime(0.018, t0 + 0.8);
+  g.gain.linearRampToValueAtTime(0.03, t0 + 0.8);
 
   noise.start();
   tone.start();
@@ -407,10 +446,22 @@ function stopEngineHum() {
 
 function speakNumber(n) {
   if (!("speechSynthesis" in window)) return;
+  // only try after priming
+  if (!speechPrimed) return;
+
   try {
+    const voices = window.speechSynthesis.getVoices ? window.speechSynthesis.getVoices() : [];
+    if (!chosenVoice && voices && voices.length) {
+      chosenVoice =
+        voices.find(v => (v.lang || "").toLowerCase().startsWith("de")) ||
+        voices.find(v => (v.lang || "").toLowerCase().startsWith("en")) ||
+        voices[0] || null;
+    }
+
     window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(String(n));
-    u.lang = "de-DE";
+    if (chosenVoice) u.voice = chosenVoice;
+    u.lang = (chosenVoice && chosenVoice.lang) ? chosenVoice.lang : "de-DE";
     u.rate = 1.02;
     u.pitch = 1.0;
     u.volume = 1.0;
@@ -418,13 +469,28 @@ function speakNumber(n) {
   } catch(e) {}
 }
 
+// Try to load voices early
+if ("speechSynthesis" in window) {
+  try {
+    window.speechSynthesis.onvoiceschanged = () => {
+      const voices = window.speechSynthesis.getVoices ? window.speechSynthesis.getVoices() : [];
+      if (!chosenVoice && voices && voices.length) {
+        chosenVoice =
+          voices.find(v => (v.lang || "").toLowerCase().startsWith("de")) ||
+          voices.find(v => (v.lang || "").toLowerCase().startsWith("en")) ||
+          voices[0] || null;
+      }
+    };
+    window.speechSynthesis.getVoices && window.speechSynthesis.getVoices();
+  } catch(e) {}
+}
+
 /* =========================
-   Cinematic Starship Film (60s + idle stars)
+   Cinematic Starship Film
 ========================= */
 const rocketOverlay = document.getElementById("rocketOverlay");
 const rocketCanvas = document.getElementById("rocketCanvas");
 const rctx = rocketCanvas.getContext("2d");
-
 const cinematicHud = document.getElementById("cinematicHud");
 const countText = document.getElementById("countText");
 
@@ -433,11 +499,8 @@ let filmMode = "off"; // "film" | "idle" | "off"
 let filmStart = 0;
 let idleStart = 0;
 
-let starsFar = [];
-let starsMid = [];
-let starsNear = [];
-let smoke = [];
-let sparks = [];
+let starsFar = [], starsMid = [], starsNear = [];
+let smoke = [], sparks = [];
 
 function resizeRocketCanvas() {
   rocketCanvas.width = Math.floor(window.innerWidth * devicePixelRatio);
@@ -451,8 +514,7 @@ window.addEventListener("resize", () => {
 });
 
 function initStarfields() {
-  const w = rocketCanvas.width;
-  const h = rocketCanvas.height;
+  const w = rocketCanvas.width, h = rocketCanvas.height;
 
   function makeStars(count, sizeMin, sizeMax, alphaMin, alphaMax) {
     const arr = [];
@@ -499,6 +561,43 @@ function spawnSparks(x,y,amount=10) {
       a: 0.9,
       life: Math.random()*25 + 20
     });
+  }
+}
+
+function updateParticles() {
+  for (let i=smoke.length-1; i>=0; i--) {
+    const p = smoke[i];
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vy += 0.05 * devicePixelRatio;
+    p.r *= 0.987;
+    p.a *= 0.988;
+    p.life -= 1;
+    if (p.life <= 0 || p.a < 0.02 || p.r < 1) smoke.splice(i,1);
+  }
+  for (let i=sparks.length-1; i>=0; i--) {
+    const s = sparks[i];
+    s.x += s.vx;
+    s.y += s.vy;
+    s.vy += 0.16 * devicePixelRatio;
+    s.a *= 0.95;
+    s.life -= 1;
+    if (s.life <= 0 || s.a < 0.03) sparks.splice(i,1);
+  }
+}
+
+function drawParticles() {
+  for (const p of smoke) {
+    rctx.beginPath();
+    rctx.arc(p.x, p.y, p.r, 0, Math.PI*2);
+    rctx.fillStyle = `rgba(220,230,240,${p.a})`;
+    rctx.fill();
+  }
+  for (const s of sparks) {
+    rctx.beginPath();
+    rctx.arc(s.x, s.y, 2.0*devicePixelRatio, 0, Math.PI*2);
+    rctx.fillStyle = `rgba(255,200,120,${s.a})`;
+    rctx.fill();
   }
 }
 
@@ -553,55 +652,24 @@ function drawStars(arr, t, dx, dy) {
   }
 }
 
-function updateParticles() {
-  for (let i=smoke.length-1; i>=0; i--) {
-    const p = smoke[i];
-    p.x += p.vx;
-    p.y += p.vy;
-    p.vy += 0.05 * devicePixelRatio;
-    p.r *= 0.987;
-    p.a *= 0.988;
-    p.life -= 1;
-    if (p.life <= 0 || p.a < 0.02 || p.r < 1) smoke.splice(i,1);
-  }
-  for (let i=sparks.length-1; i>=0; i--) {
-    const s = sparks[i];
-    s.x += s.vx;
-    s.y += s.vy;
-    s.vy += 0.16 * devicePixelRatio;
-    s.a *= 0.95;
-    s.life -= 1;
-    if (s.life <= 0 || s.a < 0.03) sparks.splice(i,1);
-  }
+function drawVignette(w,h){
+  const vg = rctx.createRadialGradient(w*0.5, h*0.5, Math.min(w,h)*0.15, w*0.5, h*0.5, Math.max(w,h)*0.65);
+  vg.addColorStop(0, "rgba(0,0,0,0)");
+  vg.addColorStop(1, "rgba(0,0,0,0.35)");
+  rctx.fillStyle = vg;
+  rctx.fillRect(0,0,w,h);
 }
 
-function drawParticles() {
-  for (const p of smoke) {
-    rctx.beginPath();
-    rctx.arc(p.x, p.y, p.r, 0, Math.PI*2);
-    rctx.fillStyle = `rgba(220,230,240,${p.a})`;
-    rctx.fill();
-  }
-  for (const s of sparks) {
-    rctx.beginPath();
-    rctx.arc(s.x, s.y, 2.0*devicePixelRatio, 0, Math.PI*2);
-    rctx.fillStyle = `rgba(255,200,120,${s.a})`;
-    rctx.fill();
-  }
-}
-
-/* --- Starship-ish rocket drawing (2D, more realistic silhouette) --- */
-function drawStarship(x, y, scale, phaseT, phase) {
-  // phase: "launch" | "climb" | "cruise" | "idle"
+/* --- FIX: Starship always visible (anchor at engine base) --- */
+function drawStarshipAtEngineBase(x, engineBaseY, scale, t, phase) {
+  // engineBaseY = where engines end; body is drawn upward from there
   const s = scale;
   rctx.save();
-  rctx.translate(x, y);
+  rctx.translate(x, engineBaseY);
   rctx.scale(s, s);
 
-  // body dims (Starship silhouette)
   const bodyW = 34;
-  const bodyH = 160;
-  const topY = -90;
+  const bodyH = 170;
   const left = -bodyW/2;
 
   // stainless gradient
@@ -612,17 +680,25 @@ function drawStarship(x, y, scale, phaseT, phase) {
   steel.addColorStop(0.76, "rgba(255,255,255,0.94)");
   steel.addColorStop(1.0, "rgba(165,170,176,0.96)");
 
-  // main body
+  // body upward: from y=-bodyH to y=0
   rctx.beginPath();
-  rctx.roundRect(left, topY, bodyW, bodyH, 14);
+  rctx.roundRect(left, -bodyH, bodyW, bodyH, 14);
   rctx.fillStyle = steel;
   rctx.fill();
 
-  // panel/tiling lines (subtle)
-  rctx.globalAlpha = 0.22;
+  // nose cone
+  rctx.beginPath();
+  rctx.moveTo(left, -bodyH + 10);
+  rctx.quadraticCurveTo(0, -bodyH - 62, left + bodyW, -bodyH + 10);
+  rctx.closePath();
+  rctx.fillStyle = steel;
+  rctx.fill();
+
+  // subtle tile lines
+  rctx.globalAlpha = 0.20;
   rctx.strokeStyle = "rgba(0,0,0,0.35)";
   rctx.lineWidth = 1;
-  for (let yy = topY + 18; yy < topY + bodyH - 10; yy += 16) {
+  for (let yy = -bodyH + 28; yy < -16; yy += 16) {
     rctx.beginPath();
     rctx.moveTo(left + 4, yy);
     rctx.lineTo(left + bodyW - 4, yy);
@@ -630,111 +706,78 @@ function drawStarship(x, y, scale, phaseT, phase) {
   }
   rctx.globalAlpha = 1;
 
-  // nose cone (ogive-ish)
+  // flap color
+  const flap = "rgba(60,65,72,0.9)";
+
+  // forward flaps (near top)
   rctx.beginPath();
-  rctx.moveTo(left, topY + 6);
-  rctx.quadraticCurveTo(0, topY - 58, left + bodyW, topY + 6);
+  rctx.moveTo(left, -bodyH + 44);
+  rctx.lineTo(left - 18, -bodyH + 58);
+  rctx.lineTo(left, -bodyH + 70);
   rctx.closePath();
-  rctx.fillStyle = steel;
+  rctx.fillStyle = flap;
   rctx.fill();
 
-  // black thermal tiles band (suggestion)
-  rctx.globalAlpha = 0.12;
-  rctx.fillStyle = "rgba(0,0,0,1)";
-  rctx.fillRect(left + 2, topY + 88, bodyW - 4, 22);
-  rctx.globalAlpha = 1;
-
-  // flaps (Starship-like)
-  // forward flap (upper) + aft flap (lower)
-  const flapColor = "rgba(60,65,72,0.9)";
-  // left forward flap
   rctx.beginPath();
-  rctx.moveTo(left, topY + 32);
-  rctx.lineTo(left - 18, topY + 44);
-  rctx.lineTo(left, topY + 54);
+  rctx.moveTo(left + bodyW, -bodyH + 44);
+  rctx.lineTo(left + bodyW + 18, -bodyH + 58);
+  rctx.lineTo(left + bodyW, -bodyH + 70);
   rctx.closePath();
-  rctx.fillStyle = flapColor;
+  rctx.fillStyle = flap;
   rctx.fill();
 
-  // right forward flap
+  // aft flaps (near bottom)
   rctx.beginPath();
-  rctx.moveTo(left + bodyW, topY + 32);
-  rctx.lineTo(left + bodyW + 18, topY + 44);
-  rctx.lineTo(left + bodyW, topY + 54);
+  rctx.moveTo(left, -38);
+  rctx.lineTo(left - 20, -22);
+  rctx.lineTo(left, -10);
   rctx.closePath();
-  rctx.fillStyle = flapColor;
+  rctx.fillStyle = flap;
   rctx.fill();
 
-  // left aft flap
   rctx.beginPath();
-  rctx.moveTo(left, topY + 124);
-  rctx.lineTo(left - 20, topY + 138);
-  rctx.lineTo(left, topY + 150);
+  rctx.moveTo(left + bodyW, -38);
+  rctx.lineTo(left + bodyW + 20, -22);
+  rctx.lineTo(left + bodyW, -10);
   rctx.closePath();
-  rctx.fillStyle = flapColor;
+  rctx.fillStyle = flap;
   rctx.fill();
 
-  // right aft flap
-  rctx.beginPath();
-  rctx.moveTo(left + bodyW, topY + 124);
-  rctx.lineTo(left + bodyW + 20, topY + 138);
-  rctx.lineTo(left + bodyW, topY + 150);
-  rctx.closePath();
-  rctx.fillStyle = flapColor;
-  rctx.fill();
-
-  // header “black” section suggestion
-  rctx.globalAlpha = 0.18;
-  rctx.fillStyle = "rgba(0,0,0,1)";
-  rctx.beginPath();
-  rctx.roundRect(left + 4, topY + 10, bodyW - 8, 20, 10);
-  rctx.fill();
-  rctx.globalAlpha = 1;
-
-  // engine section
-  const engineY = topY + bodyH - 4;
+  // engine skirt
   rctx.globalAlpha = 0.35;
   rctx.fillStyle = "rgba(0,0,0,1)";
   rctx.beginPath();
-  rctx.roundRect(left + 4, engineY - 14, bodyW - 8, 14, 8);
+  rctx.roundRect(left + 4, -14, bodyW - 8, 14, 8);
   rctx.fill();
   rctx.globalAlpha = 1;
 
-  // plume (phase dependent)
+  // plume (below engine base, positive y)
   if (phase !== "idle") {
-    const wobble = 0.35 + 0.15*Math.sin(phaseT*12);
-    const flameLen = (phase === "launch") ? (85 + 35*wobble) : (phase === "climb") ? (55 + 18*wobble) : (42 + 14*wobble);
+    const wobble = 0.35 + 0.15*Math.sin(t*12);
+    const flameLen =
+      (phase === "launch") ? (95 + 45*wobble) :
+      (phase === "climb")  ? (60 + 22*wobble) :
+                             (46 + 16*wobble);
 
-    // outer glow
+    const outer = (phase === "cruise") ? "rgba(120,200,255,0.22)" : "rgba(255,170,60,0.28)";
+    const inner = (phase === "cruise") ? "rgba(210,245,255,0.75)" : "rgba(255,245,210,0.75)";
+
     rctx.beginPath();
-    rctx.moveTo(0, engineY);
-    rctx.quadraticCurveTo(-18, engineY + flameLen*0.55, 0, engineY + flameLen);
-    rctx.quadraticCurveTo(18, engineY + flameLen*0.55, 0, engineY);
-    rctx.fillStyle = (phase === "cruise")
-      ? "rgba(120,200,255,0.22)"   // bläulicher
-      : "rgba(255,170,60,0.28)";
+    rctx.moveTo(0, 0);
+    rctx.quadraticCurveTo(-18, flameLen*0.55, 0, flameLen);
+    rctx.quadraticCurveTo(18, flameLen*0.55, 0, 0);
+    rctx.fillStyle = outer;
     rctx.fill();
 
-    // inner core
     rctx.beginPath();
-    rctx.moveTo(0, engineY + 2);
-    rctx.quadraticCurveTo(-9, engineY + flameLen*0.50, 0, engineY + flameLen*0.78);
-    rctx.quadraticCurveTo(9, engineY + flameLen*0.50, 0, engineY + 2);
-    rctx.fillStyle = (phase === "cruise")
-      ? "rgba(210,245,255,0.72)"
-      : "rgba(255,245,210,0.75)";
+    rctx.moveTo(0, 2);
+    rctx.quadraticCurveTo(-9, flameLen*0.52, 0, flameLen*0.80);
+    rctx.quadraticCurveTo(9, flameLen*0.52, 0, 2);
+    rctx.fillStyle = inner;
     rctx.fill();
   }
 
   rctx.restore();
-}
-
-function drawVignette(w,h){
-  const vg = rctx.createRadialGradient(w*0.5, h*0.5, Math.min(w,h)*0.15, w*0.5, h*0.5, Math.max(w,h)*0.65);
-  vg.addColorStop(0, "rgba(0,0,0,0)");
-  vg.addColorStop(1, "rgba(0,0,0,0.35)");
-  rctx.fillStyle = vg;
-  rctx.fillRect(0,0,w,h);
 }
 
 function filmFrame(ts) {
@@ -743,17 +786,14 @@ function filmFrame(ts) {
   const w = rocketCanvas.width;
   const h = rocketCanvas.height;
 
-  const now = ts;
-
   if (filmMode === "idle") {
-    if (!idleStart) idleStart = now;
-    const t = (now - idleStart) / 1000;
+    if (!idleStart) idleStart = ts;
+    const t = (ts - idleStart) / 1000;
 
     rctx.clearRect(0,0,w,h);
     drawNebula(t,w,h);
     drawPlanet(t,w,h);
 
-    // very slow drift in idle
     const farDx  = -t * 1.2 * devicePixelRatio;
     const farDy  =  t * 0.5 * devicePixelRatio;
     const midDx  = -t * 2.2 * devicePixelRatio;
@@ -771,22 +811,18 @@ function filmFrame(ts) {
     return;
   }
 
-  // film mode
-  if (!filmStart) filmStart = now;
-  const t = (now - filmStart) / 1000;
+  if (!filmStart) filmStart = ts;
+  const t = (ts - filmStart) / 1000;
 
-  // after 60s: switch to idle starfield (no return to timer)
   if (t >= 60) {
     stopEngineHum();
     filmMode = "idle";
     idleStart = 0;
-    // keep overlay up, HUD off
     cinematicHud.style.display = "none";
     rocketRAF = requestAnimationFrame(filmFrame);
     return;
   }
 
-  // camera drift
   const camDriftX = Math.sin(t*0.12) * 18 * devicePixelRatio;
   const camDriftY = Math.cos(t*0.10) * 12 * devicePixelRatio;
 
@@ -794,7 +830,6 @@ function filmFrame(ts) {
   drawNebula(t,w,h);
   drawPlanet(t,w,h);
 
-  // star parallax
   const farDx  = -t * 6  * devicePixelRatio + camDriftX*0.15;
   const farDy  =  t * 2  * devicePixelRatio + camDriftY*0.15;
   const midDx  = -t * 14 * devicePixelRatio + camDriftX*0.30;
@@ -806,36 +841,35 @@ function filmFrame(ts) {
   drawStars(starsMid,  t, midDx,  midDy);
   drawStars(starsNear, t, nearDx, nearDy);
 
-  // phases
+  // phases + position
   let phase = "cruise";
   let rocketX = w*0.5 + Math.sin(t*0.7) * 20 * devicePixelRatio + camDriftX;
-  let rocketY;
+  let engineBaseY;
 
   if (t < 8) {
     phase = "launch";
     const k = t/8;
-    rocketY = h*0.78 - (k*k) * (h*0.55) + camDriftY;
-    spawnSmoke(rocketX, rocketY + 170*devicePixelRatio, 1.15);
-    if (t < 2.5) spawnSparks(rocketX, rocketY + 160*devicePixelRatio, 6);
+    engineBaseY = h*0.82 - (k*k) * (h*0.56) + camDriftY;
+    spawnSmoke(rocketX, engineBaseY + 140*devicePixelRatio, 1.10);
+    if (t < 2.5) spawnSparks(rocketX, engineBaseY + 120*devicePixelRatio, 6);
   } else if (t < 18) {
     phase = "climb";
     const k = (t-8)/10;
-    rocketY = h*0.23 - (k) * (h*0.12) + camDriftY;
-    spawnSmoke(rocketX, rocketY + 150*devicePixelRatio, 0.62);
+    engineBaseY = h*0.34 - (k) * (h*0.12) + camDriftY;
+    spawnSmoke(rocketX, engineBaseY + 120*devicePixelRatio, 0.60);
   } else {
     phase = "cruise";
     rocketX = w*0.46 + Math.sin(t*0.9) * 28 * devicePixelRatio + camDriftX;
-    rocketY = h*0.42 + Math.cos(t*0.7) * 22 * devicePixelRatio + camDriftY;
-    spawnSmoke(rocketX - 10*devicePixelRatio, rocketY + 170*devicePixelRatio, 0.30);
+    engineBaseY = h*0.55 + Math.cos(t*0.7) * 22 * devicePixelRatio + camDriftY;
+    spawnSmoke(rocketX - 10*devicePixelRatio, engineBaseY + 115*devicePixelRatio, 0.28);
   }
 
   updateParticles();
   drawParticles();
-
   drawVignette(w,h);
 
-  // draw starship
-  drawStarship(rocketX, rocketY, 1.55*devicePixelRatio, t, phase);
+  // ✅ always visible now
+  drawStarshipAtEngineBase(rocketX, engineBaseY, 1.55*devicePixelRatio, t, phase);
 
   rocketRAF = requestAnimationFrame(filmFrame);
 }
@@ -864,7 +898,6 @@ function startRocketFilm() {
   rocketRAF = requestAnimationFrame(filmFrame);
 }
 
-// forceBackToTimer=true when daily automation hits
 function stopRocketFilm(forceBackToTimer=false) {
   filmMode = "off";
   if (rocketRAF) cancelAnimationFrame(rocketRAF);
@@ -888,7 +921,6 @@ function showCountdownHud(n) {
   cinematicHud.style.display = "flex";
   countText.textContent = String(n);
 }
-
 function hideCountdownHud() {
   cinematicHud.style.display = "none";
 }
@@ -909,11 +941,14 @@ function tick() {
 
       if (lastSpoken !== remaining) {
         lastSpoken = remaining;
-        beep(remaining <= 3 ? 980 : 880, 120, 0.06);
+
+        // Beep always (works even if speech fails)
+        beep(remaining <= 3 ? 740 : 660, 170, 0.18);
+
+        // Speech (after priming)
         speakNumber(remaining);
       }
     } else {
-      // show timer if not in countdown and no film active
       if (filmMode === "off") {
         canvas.classList.remove("hidden");
         document.getElementById("controls").classList.remove("hidden");
@@ -928,7 +963,7 @@ function tick() {
       hideCountdownHud();
       lastSpoken = null;
 
-      beep(1200, 180, 0.08);
+      beep(980, 220, 0.22);
       speakNumber(0);
 
       startRocketFilm();
@@ -954,26 +989,31 @@ function setTimer() {
   minutesInput.value = String(mins);
   secondsInput.value = String(secs);
 
-  stopRocketFilm(true); // zurück zur Uhr
+  stopRocketFilm(true);
   remaining = mins*60 + secs;
   if (remaining <= 0) remaining = 1;
+
   lastSpoken = null;
   hideCountdownHud();
 }
 
 function toggleTimer() {
+  // ✅ iPad fix: prime audio + speech on user gesture
   ensureAudio();
+  primeSpeechOnce();
   running = !running;
 }
 
 document.getElementById("btnSet").addEventListener("click", () => {
   ensureAudio();
+  primeSpeechOnce();
   setTimer();
 });
 document.getElementById("btnToggle").addEventListener("click", toggleTimer);
 
 document.getElementById("btn15").addEventListener("click", () => {
   ensureAudio();
+  primeSpeechOnce();
   minutesInput.value = "0";
   secondsInput.value = "15";
   setTimer();
