@@ -69,12 +69,9 @@
     cursor: pointer;
   }
 
-  #controls .label {
-    font-size: 14px;
-    color: rgba(0,0,0,0.65);
-  }
+  #controls .label { font-size: 14px; color: rgba(0,0,0,0.65); }
 
-  /* Rocket overlay */
+  /* Film overlay */
   #rocketOverlay {
     position: fixed;
     inset: 0;
@@ -89,21 +86,28 @@
     display: block;
   }
 
-  #rocketCaption {
+  /* Cinematic HUD (Countdown only) */
+  #cinematicHud {
     position: fixed;
-    top: 18px;
-    left: 50%;
-    transform: translateX(-50%);
+    inset: 0;
     z-index: 10000;
-    color: rgba(255,255,255,0.92);
-    font-size: 42px;
-    font-weight: 800;
-    letter-spacing: 1px;
-    padding: 10px 16px;
-    border-radius: 14px;
-    background: rgba(0,0,0,0.35);
-    border: 1px solid rgba(255,255,255,0.12);
     display: none;
+    pointer-events: none;
+    align-items: center;
+    justify-content: center;
+  }
+  #cinematicHud .count {
+    font-size: min(20vh, 160px);
+    font-weight: 900;
+    letter-spacing: 2px;
+    color: rgba(255,255,255,0.95);
+    text-shadow: 0 10px 40px rgba(0,0,0,0.6);
+    padding: 18px 26px;
+    border-radius: 22px;
+    background: rgba(0,0,0,0.25);
+    border: 1px solid rgba(255,255,255,0.12);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
   }
 
   .hidden { display: none !important; }
@@ -128,7 +132,10 @@
 <div id="rocketOverlay">
   <canvas id="rocketCanvas"></canvas>
 </div>
-<div id="rocketCaption">🚀 LIFTOFF</div>
+
+<div id="cinematicHud">
+  <div class="count" id="countText">10</div>
+</div>
 
 <script>
 /* =========================
@@ -143,8 +150,7 @@ let totalTime = 60 * 60;     // 60min Skala
 let remaining = 45 * 60;
 let running = false;
 
-// Countdown state
-let countdownActive = false;
+// Countdown speech sync
 let lastSpoken = null;
 
 // Version A Zeitautomatik
@@ -165,7 +171,7 @@ function applyDailyAutomation(now = new Date()) {
 
   // 07:15 -> 45min + Start
   if (h === AUTO_START_H && m === AUTO_START_M && lastAutoStartKey !== key) {
-    stopRocketShow(); // falls Rocket noch offen ist
+    stopRocketShow(); // falls Film noch offen
     remaining = MORNING_MINUTES * 60;
     minutesInput.value = String(MORNING_MINUTES);
     secondsInput.value = "0";
@@ -259,9 +265,11 @@ function draw() {
 }
 
 /* =========================
-   Sound + Speech
+   Sound + Speech (synced)
 ========================= */
 let audioCtx = null;
+let engineNodes = null;
+
 function ensureAudio() {
   if (!audioCtx) {
     const AC = window.AudioContext || window.webkitAudioContext;
@@ -284,35 +292,30 @@ function beep(freq=880, ms=110, gain=0.06) {
   osc.connect(g);
   g.connect(audioCtx.destination);
 
-  osc.start(t0);
-  osc.stop(t0 + ms/1000);
-
-  // kleines Fade-out
   g.gain.setValueAtTime(gain, t0);
   g.gain.exponentialRampToValueAtTime(0.0001, t0 + ms/1000);
+
+  osc.start(t0);
+  osc.stop(t0 + ms/1000);
 }
 
-function rumble(ms=1200) {
+function rumble(ms=1400) {
   ensureAudio();
   if (!audioCtx) return;
-
   const t0 = audioCtx.currentTime;
   const duration = ms/1000;
 
-  // Noise
   const bufferSize = Math.floor(audioCtx.sampleRate * duration);
   const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
   const data = buffer.getChannelData(0);
-  for (let i=0; i<bufferSize; i++) {
-    data[i] = (Math.random()*2 - 1) * 0.8;
-  }
+  for (let i=0; i<bufferSize; i++) data[i] = (Math.random()*2 - 1) * 0.9;
+
   const noise = audioCtx.createBufferSource();
   noise.buffer = buffer;
 
-  // Filter + Gain
   const filter = audioCtx.createBiquadFilter();
   filter.type = "lowpass";
-  filter.frequency.value = 180;
+  filter.frequency.value = 160;
 
   const g = audioCtx.createGain();
   g.gain.value = 0.001;
@@ -321,10 +324,10 @@ function rumble(ms=1200) {
   filter.connect(g);
   g.connect(audioCtx.destination);
 
-  // fade in/out
   g.gain.setValueAtTime(0.001, t0);
-  g.gain.linearRampToValueAtTime(0.10, t0 + 0.12);
-  g.gain.linearRampToValueAtTime(0.04, t0 + duration);
+  g.gain.linearRampToValueAtTime(0.12, t0 + 0.15);
+  g.gain.linearRampToValueAtTime(0.03, t0 + duration);
+
   noise.start(t0);
   noise.stop(t0 + duration);
 }
@@ -341,23 +344,78 @@ function whoosh(ms=900) {
   osc.frequency.exponentialRampToValueAtTime(60, t0 + ms/1000);
 
   g.gain.setValueAtTime(0.001, t0);
-  g.gain.linearRampToValueAtTime(0.07, t0 + 0.08);
+  g.gain.linearRampToValueAtTime(0.07, t0 + 0.10);
   g.gain.exponentialRampToValueAtTime(0.0001, t0 + ms/1000);
 
   osc.connect(g);
   g.connect(audioCtx.destination);
+
   osc.start(t0);
   osc.stop(t0 + ms/1000);
 }
 
+function startEngineHum() {
+  ensureAudio();
+  if (!audioCtx || engineNodes) return;
+
+  // noise + lowpass + subtle tone
+  const noiseBuf = audioCtx.createBuffer(1, audioCtx.sampleRate * 2, audioCtx.sampleRate);
+  const data = noiseBuf.getChannelData(0);
+  for (let i=0; i<data.length; i++) data[i] = (Math.random()*2-1) * 0.6;
+
+  const noise = audioCtx.createBufferSource();
+  noise.buffer = noiseBuf;
+  noise.loop = true;
+
+  const lp = audioCtx.createBiquadFilter();
+  lp.type = "lowpass";
+  lp.frequency.value = 220;
+
+  const tone = audioCtx.createOscillator();
+  tone.type = "sine";
+  tone.frequency.value = 62;
+
+  const g = audioCtx.createGain();
+  g.gain.value = 0.0001;
+
+  noise.connect(lp);
+  lp.connect(g);
+  tone.connect(g);
+  g.connect(audioCtx.destination);
+
+  const t0 = audioCtx.currentTime;
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.linearRampToValueAtTime(0.018, t0 + 0.8);
+
+  noise.start();
+  tone.start();
+
+  engineNodes = { noise, tone, g };
+}
+
+function stopEngineHum() {
+  if (!audioCtx || !engineNodes) return;
+  const t0 = audioCtx.currentTime;
+  try {
+    engineNodes.g.gain.cancelScheduledValues(t0);
+    engineNodes.g.gain.setValueAtTime(engineNodes.g.gain.value, t0);
+    engineNodes.g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.6);
+  } catch(e) {}
+
+  setTimeout(() => {
+    try { engineNodes.noise.stop(); } catch(e) {}
+    try { engineNodes.tone.stop(); } catch(e) {}
+    engineNodes = null;
+  }, 700);
+}
+
 function speakNumber(n) {
   if (!("speechSynthesis" in window)) return;
-  // iOS/Browser: manchmal darf Speech nur nach User-Interaction
   try {
     window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(String(n));
     u.lang = "de-DE";
-    u.rate = 1.0;
+    u.rate = 1.02;
     u.pitch = 1.0;
     u.volume = 1.0;
     window.speechSynthesis.speak(u);
@@ -365,85 +423,176 @@ function speakNumber(n) {
 }
 
 /* =========================
-   Rocket Animation Overlay
+   Cinematic Rocket Film (60s)
 ========================= */
 const rocketOverlay = document.getElementById("rocketOverlay");
 const rocketCanvas = document.getElementById("rocketCanvas");
 const rctx = rocketCanvas.getContext("2d");
-const rocketCaption = document.getElementById("rocketCaption");
+
+const cinematicHud = document.getElementById("cinematicHud");
+const countText = document.getElementById("countText");
 
 let rocketRAF = null;
-let rocketT0 = 0;
-let particles = [];
-let stars = [];
 let rocketRunning = false;
+let filmStart = 0;
+
+let starsFar = [];
+let starsMid = [];
+let starsNear = [];
+let smoke = [];
+let sparks = [];
 
 function resizeRocketCanvas() {
   rocketCanvas.width = Math.floor(window.innerWidth * devicePixelRatio);
   rocketCanvas.height = Math.floor(window.innerHeight * devicePixelRatio);
-  rctx.setTransform(1,0,0,1,0,0);
 }
-window.addEventListener("resize", resizeRocketCanvas);
-
-function initStars() {
-  stars = [];
-  const w = rocketCanvas.width, h = rocketCanvas.height;
-  const count = Math.floor((w*h) / (40000 * devicePixelRatio));
-  for (let i=0; i<count; i++) {
-    stars.push({
-      x: Math.random()*w,
-      y: Math.random()*h,
-      r: (Math.random()*1.6 + 0.4)*devicePixelRatio,
-      a: Math.random()*0.6 + 0.2,
-      tw: Math.random()*0.8 + 0.2
-    });
+window.addEventListener("resize", () => {
+  if (rocketRunning) {
+    resizeRocketCanvas();
+    initStarfields();
   }
+});
+
+function initStarfields() {
+  const w = rocketCanvas.width;
+  const h = rocketCanvas.height;
+
+  function makeStars(count, sizeMin, sizeMax, alphaMin, alphaMax) {
+    const arr = [];
+    for (let i=0; i<count; i++) {
+      arr.push({
+        x: Math.random()*w,
+        y: Math.random()*h,
+        r: (Math.random()*(sizeMax-sizeMin)+sizeMin)*devicePixelRatio,
+        a: Math.random()*(alphaMax-alphaMin)+alphaMin,
+        tw: Math.random()*1.4+0.2
+      });
+    }
+    return arr;
+  }
+
+  starsFar  = makeStars(Math.floor((w*h)/90000), 0.35, 0.9, 0.10, 0.40);
+  starsMid  = makeStars(Math.floor((w*h)/140000), 0.7,  1.6, 0.20, 0.60);
+  starsNear = makeStars(Math.floor((w*h)/220000), 1.1,  2.4, 0.25, 0.80);
+
+  smoke = [];
+  sparks = [];
 }
 
-function spawnSmoke(x,y) {
-  for (let i=0; i<14; i++) {
-    particles.push({
+function spawnSmoke(x,y,intensity=1) {
+  const n = Math.floor(10 * intensity);
+  for (let i=0; i<n; i++) {
+    smoke.push({
       x, y,
-      vx: (Math.random()*2-1) * 2.2 * devicePixelRatio,
-      vy: (Math.random()*1.2 + 2.2) * devicePixelRatio,
-      r: (Math.random()*14 + 10) * devicePixelRatio,
-      a: 0.55,
-      life: Math.random()*50 + 40
+      vx: (Math.random()*2-1) * (2.2*devicePixelRatio) * intensity,
+      vy: (Math.random()*1.2 + 2.4) * devicePixelRatio,
+      r: (Math.random()*18 + 14) * devicePixelRatio * (0.9 + 0.4*intensity),
+      a: 0.50,
+      life: Math.random()*70 + 60
     });
   }
 }
 
-function drawRocket(x, y, s) {
-  // simple rocket (body + nose + fins)
+function spawnSparks(x,y,amount=10) {
+  for (let i=0; i<amount; i++) {
+    sparks.push({
+      x, y,
+      vx: (Math.random()*2-1) * 5.5 * devicePixelRatio,
+      vy: (Math.random()*-1.5 - 3.0) * devicePixelRatio,
+      a: 0.9,
+      life: Math.random()*25 + 20
+    });
+  }
+}
+
+function drawNebula(t, w, h) {
+  // soft moving fog layers
+  const g1 = rctx.createRadialGradient(w*0.25, h*0.35, 0, w*0.25, h*0.35, w*0.65);
+  g1.addColorStop(0, `rgba(120,80,255,${0.08 + 0.02*Math.sin(t*0.3)})`);
+  g1.addColorStop(1, "rgba(0,0,0,0)");
+  rctx.fillStyle = g1;
+  rctx.fillRect(0,0,w,h);
+
+  const g2 = rctx.createRadialGradient(w*0.75, h*0.55, 0, w*0.75, h*0.55, w*0.7);
+  g2.addColorStop(0, `rgba(40,200,255,${0.06 + 0.02*Math.sin(t*0.22+1.2)})`);
+  g2.addColorStop(1, "rgba(0,0,0,0)");
+  rctx.fillStyle = g2;
+  rctx.fillRect(0,0,w,h);
+}
+
+function drawPlanet(t,w,h) {
+  // far planet drifting slowly
+  const px = w*0.82 + Math.sin(t*0.04)*w*0.02;
+  const py = h*0.74 + Math.cos(t*0.03)*h*0.02;
+  const pr = Math.min(w,h)*0.22;
+
+  // shadow
+  rctx.beginPath();
+  rctx.arc(px,py,pr,0,Math.PI*2);
+  const pg = rctx.createRadialGradient(px-pr*0.25, py-pr*0.15, pr*0.2, px, py, pr);
+  pg.addColorStop(0, "rgba(160,190,255,0.20)");
+  pg.addColorStop(0.55, "rgba(40,60,120,0.12)");
+  pg.addColorStop(1, "rgba(0,0,0,0.0)");
+  rctx.fillStyle = pg;
+  rctx.fill();
+
+  // rim light
+  rctx.beginPath();
+  rctx.arc(px,py,pr*1.02,0,Math.PI*2);
+  rctx.strokeStyle = "rgba(160,190,255,0.12)";
+  rctx.lineWidth = 3*devicePixelRatio;
+  rctx.stroke();
+}
+
+function drawStars(arr, t, dx, dy) {
+  for (const st of arr) {
+    const tw = 0.55 + 0.45*Math.sin(t*st.tw + st.x*0.001);
+    rctx.beginPath();
+    rctx.arc(st.x + dx, st.y + dy, st.r, 0, Math.PI*2);
+    rctx.fillStyle = `rgba(255,255,255,${st.a*tw})`;
+    rctx.fill();
+  }
+}
+
+function drawRocket(x, y, s, flame=1) {
   rctx.save();
   rctx.translate(x, y);
   rctx.scale(s, s);
 
-  // flame
+  // engine plume (animated)
+  const f = flame;
   rctx.beginPath();
-  rctx.moveTo(0, 80);
-  rctx.quadraticCurveTo(-14, 120, 0, 140);
-  rctx.quadraticCurveTo(14, 120, 0, 80);
-  rctx.fillStyle = "rgba(255,160,40,0.95)";
+  rctx.moveTo(0, 86);
+  rctx.quadraticCurveTo(-16, 120 + 18*f, 0, 155 + 22*f);
+  rctx.quadraticCurveTo(16, 120 + 18*f, 0, 86);
+  rctx.fillStyle = `rgba(255,160,40,${0.72})`;
   rctx.fill();
 
   rctx.beginPath();
-  rctx.moveTo(0, 92);
-  rctx.quadraticCurveTo(-8, 120, 0, 132);
-  rctx.quadraticCurveTo(8, 120, 0, 92);
-  rctx.fillStyle = "rgba(255,240,180,0.95)";
+  rctx.moveTo(0, 98);
+  rctx.quadraticCurveTo(-9, 122 + 12*f, 0, 142 + 16*f);
+  rctx.quadraticCurveTo(9, 122 + 12*f, 0, 98);
+  rctx.fillStyle = `rgba(255,245,210,${0.78})`;
   rctx.fill();
 
   // body
   rctx.beginPath();
-  rctx.roundRect(-18, -30, 36, 110, 16);
+  rctx.roundRect(-18, -30, 36, 116, 16);
   rctx.fillStyle = "rgba(240,242,246,0.98)";
   rctx.fill();
 
+  // subtle shading
+  const lg = rctx.createLinearGradient(-18,0,18,0);
+  lg.addColorStop(0,"rgba(0,0,0,0.10)");
+  lg.addColorStop(0.4,"rgba(255,255,255,0.02)");
+  lg.addColorStop(1,"rgba(0,0,0,0.18)");
+  rctx.fillStyle = lg;
+  rctx.fillRect(-18,-30,36,116);
+
   // window
   rctx.beginPath();
-  rctx.arc(0, 10, 10, 0, Math.PI*2);
-  rctx.fillStyle = "rgba(30,120,220,0.9)";
+  rctx.arc(0, 12, 10, 0, Math.PI*2);
+  rctx.fillStyle = "rgba(30,120,220,0.92)";
   rctx.fill();
   rctx.lineWidth = 2;
   rctx.strokeStyle = "rgba(0,0,0,0.15)";
@@ -452,116 +601,184 @@ function drawRocket(x, y, s) {
   // nose
   rctx.beginPath();
   rctx.moveTo(-18, -30);
-  rctx.quadraticCurveTo(0, -70, 18, -30);
+  rctx.quadraticCurveTo(0, -74, 18, -30);
   rctx.closePath();
-  rctx.fillStyle = "rgba(220,40,60,0.95)";
+  rctx.fillStyle = "rgba(220,40,60,0.96)";
   rctx.fill();
 
   // fins
   rctx.beginPath();
-  rctx.moveTo(-18, 58);
-  rctx.lineTo(-40, 78);
-  rctx.lineTo(-18, 78);
+  rctx.moveTo(-18, 62);
+  rctx.lineTo(-42, 86);
+  rctx.lineTo(-18, 86);
   rctx.closePath();
-  rctx.fillStyle = "rgba(220,40,60,0.95)";
+  rctx.fillStyle = "rgba(220,40,60,0.96)";
   rctx.fill();
 
   rctx.beginPath();
-  rctx.moveTo(18, 58);
-  rctx.lineTo(40, 78);
-  rctx.lineTo(18, 78);
+  rctx.moveTo(18, 62);
+  rctx.lineTo(42, 86);
+  rctx.lineTo(18, 86);
   rctx.closePath();
-  rctx.fillStyle = "rgba(220,40,60,0.95)";
+  rctx.fillStyle = "rgba(220,40,60,0.96)";
   rctx.fill();
 
   rctx.restore();
 }
 
-function rocketLoop(ts) {
-  if (!rocketRunning) return;
-  if (!rocketT0) rocketT0 = ts;
-  const t = (ts - rocketT0) / 1000;
-
-  const w = rocketCanvas.width;
-  const h = rocketCanvas.height;
-
-  // background
-  rctx.clearRect(0,0,w,h);
-
-  // stars
-  for (const st of stars) {
-    const tw = 0.5 + 0.5*Math.sin(t*st.tw + st.x*0.001);
-    rctx.beginPath();
-    rctx.arc(st.x, st.y, st.r, 0, Math.PI*2);
-    rctx.fillStyle = `rgba(255,255,255,${st.a*tw})`;
-    rctx.fill();
-  }
-
-  // rocket motion: start near bottom, go up
-  const baseX = w * 0.5;
-  const startY = h * 0.78;
-  const y = startY - (t*t) * (220 * devicePixelRatio); // accelerate upward
-  const x = baseX + Math.sin(t*1.2) * (14 * devicePixelRatio);
-
-  // smoke spawn
-  spawnSmoke(x, y + 120*devicePixelRatio);
-
-  // particles
-  for (let i=particles.length-1; i>=0; i--) {
-    const p = particles[i];
+function updateParticles() {
+  // smoke
+  for (let i=smoke.length-1; i>=0; i--) {
+    const p = smoke[i];
     p.x += p.vx;
     p.y += p.vy;
     p.vy += 0.06 * devicePixelRatio;
-    p.r *= 0.985;
-    p.a *= 0.985;
+    p.r *= 0.986;
+    p.a *= 0.987;
     p.life -= 1;
-    if (p.life <= 0 || p.a < 0.02 || p.r < 1) {
-      particles.splice(i,1);
-      continue;
-    }
+    if (p.life <= 0 || p.a < 0.02 || p.r < 1) smoke.splice(i,1);
+  }
+  // sparks
+  for (let i=sparks.length-1; i>=0; i--) {
+    const s = sparks[i];
+    s.x += s.vx;
+    s.y += s.vy;
+    s.vy += 0.18 * devicePixelRatio;
+    s.a *= 0.95;
+    s.life -= 1;
+    if (s.life <= 0 || s.a < 0.03) sparks.splice(i,1);
+  }
+}
+
+function drawParticles() {
+  // smoke
+  for (const p of smoke) {
     rctx.beginPath();
     rctx.arc(p.x, p.y, p.r, 0, Math.PI*2);
     rctx.fillStyle = `rgba(220,230,240,${p.a})`;
     rctx.fill();
   }
+  // sparks
+  for (const s of sparks) {
+    rctx.beginPath();
+    rctx.arc(s.x, s.y, 2.0*devicePixelRatio, 0, Math.PI*2);
+    rctx.fillStyle = `rgba(255,200,120,${s.a})`;
+    rctx.fill();
+  }
+}
 
-  // ground glow
-  rctx.beginPath();
-  rctx.ellipse(w*0.5, h*0.88, 260*devicePixelRatio, 80*devicePixelRatio, 0, 0, Math.PI*2);
-  rctx.fillStyle = "rgba(255,170,70,0.08)";
-  rctx.fill();
+function rocketLoop(ts) {
+  if (!rocketRunning) return;
+  if (!filmStart) filmStart = ts;
+  const t = (ts - filmStart) / 1000; // seconds
 
-  // rocket
-  drawRocket(x, y, 1.6*devicePixelRatio);
+  const w = rocketCanvas.width;
+  const h = rocketCanvas.height;
 
-  // finish after ~6s
-  if (y < -200*devicePixelRatio || t > 6.5) {
+  // stop after 60 seconds (as requested)
+  if (t >= 60) {
     stopRocketShow();
     return;
   }
+
+  // cinematic camera drift
+  const camDriftX = Math.sin(t*0.12) * 18 * devicePixelRatio;
+  const camDriftY = Math.cos(t*0.10) * 12 * devicePixelRatio;
+
+  // background clear
+  rctx.clearRect(0,0,w,h);
+
+  // star parallax (far moves least, near most)
+  const farDx  = -t * 6  * devicePixelRatio + camDriftX*0.15;
+  const farDy  =  t * 2  * devicePixelRatio + camDriftY*0.15;
+  const midDx  = -t * 14 * devicePixelRatio + camDriftX*0.30;
+  const midDy  =  t * 5  * devicePixelRatio + camDriftY*0.30;
+  const nearDx = -t * 28 * devicePixelRatio + camDriftX*0.55;
+  const nearDy =  t * 10 * devicePixelRatio + camDriftY*0.55;
+
+  drawNebula(t,w,h);
+  drawPlanet(t,w,h);
+
+  drawStars(starsFar,  t, farDx,  farDy);
+  drawStars(starsMid,  t, midDx,  midDy);
+  drawStars(starsNear, t, nearDx, nearDy);
+
+  // phases
+  // 0..8s launch, 8..18s upper-atmosphere, 18..60s cruise
+  let rocketX = w*0.5 + Math.sin(t*0.7) * 20 * devicePixelRatio + camDriftX;
+  let rocketY;
+
+  if (t < 8) {
+    // launch: accelerate upward from near bottom
+    const k = t/8;
+    rocketY = h*0.78 - (k*k) * (h*0.55) + camDriftY;
+    spawnSmoke(rocketX, rocketY + 150*devicePixelRatio, 1.2);
+    if (t < 2.5) spawnSparks(rocketX, rocketY + 140*devicePixelRatio, 6);
+  } else if (t < 18) {
+    // climb to space
+    const k = (t-8)/10;
+    rocketY = h*0.23 - (k) * (h*0.12) + camDriftY;
+    spawnSmoke(rocketX, rocketY + 140*devicePixelRatio, 0.65);
+  } else {
+    // cruise: keep rocket near center-left, stars move faster
+    const k = (t-18)/42;
+    rocketX = w*0.46 + Math.sin(t*0.9) * 28 * devicePixelRatio + camDriftX;
+    rocketY = h*0.42 + Math.cos(t*0.7) * 22 * devicePixelRatio + camDriftY;
+
+    // engine trail in space (less smoke, more glow)
+    spawnSmoke(rocketX - 10*devicePixelRatio, rocketY + 150*devicePixelRatio, 0.35);
+  }
+
+  // update & draw particles
+  updateParticles();
+  drawParticles();
+
+  // engine flame intensity
+  const flame = (t < 8) ? (1.1 + 0.35*Math.sin(t*12)) : (0.55 + 0.18*Math.sin(t*10));
+
+  // subtle vignette
+  const vg = rctx.createRadialGradient(w*0.5, h*0.5, Math.min(w,h)*0.15, w*0.5, h*0.5, Math.max(w,h)*0.65);
+  vg.addColorStop(0, "rgba(0,0,0,0)");
+  vg.addColorStop(1, "rgba(0,0,0,0.35)");
+  rctx.fillStyle = vg;
+  rctx.fillRect(0,0,w,h);
+
+  // rocket draw
+  drawRocket(rocketX, rocketY, 1.55*devicePixelRatio, flame);
+
+  // faint HUD line (cinematic)
+  rctx.globalAlpha = 0.25;
+  rctx.lineWidth = 2*devicePixelRatio;
+  rctx.strokeStyle = "rgba(255,255,255,0.18)";
+  rctx.beginPath();
+  rctx.moveTo(w*0.08, h*0.52);
+  rctx.lineTo(w*0.92, h*0.52);
+  rctx.stroke();
+  rctx.globalAlpha = 1;
 
   rocketRAF = requestAnimationFrame(rocketLoop);
 }
 
 function startRocketShow() {
-  // hide timer UI
+  // hide everything (timer fully off)
   canvas.classList.add("hidden");
   document.getElementById("controls").classList.add("hidden");
   document.getElementById("topTime").classList.add("hidden");
 
-  // show overlay
   rocketOverlay.style.display = "block";
-  rocketCaption.style.display = "block";
+  cinematicHud.style.display = "none"; // countdown hud controlled separately
 
   resizeRocketCanvas();
-  initStars();
-  particles = [];
-  rocketT0 = 0;
+  initStarfields();
+  smoke = [];
+  sparks = [];
+  filmStart = 0;
   rocketRunning = true;
 
-  // sound sequence
-  rumble(1400);
-  whoosh(900);
+  // sound: launch
+  rumble(1600);
+  whoosh(1000);
+  startEngineHum();
 
   rocketRAF = requestAnimationFrame(rocketLoop);
 }
@@ -572,7 +789,9 @@ function stopRocketShow() {
   rocketRAF = null;
 
   rocketOverlay.style.display = "none";
-  rocketCaption.style.display = "none";
+  cinematicHud.style.display = "none";
+
+  stopEngineHum();
 
   // show timer UI again (timer stays at 0)
   canvas.classList.remove("hidden");
@@ -581,39 +800,48 @@ function stopRocketShow() {
 }
 
 /* =========================
-   Tick / Countdown / Start
+   Tick / Countdown / Start (SYNC FIX)
 ========================= */
+function showCountdownHud(n) {
+  cinematicHud.style.display = "flex";
+  countText.textContent = String(n);
+}
+
+function hideCountdownHud() {
+  cinematicHud.style.display = "none";
+}
+
+// IMPORTANT SYNC FIX:
+// We decrement first -> draw uses updated remaining -> we speak the same number.
 function tick() {
   applyDailyAutomation(new Date());
 
   if (running && remaining > 0) {
-    // Countdown letzte 10 Sekunden
-    if (remaining <= 10) {
-      countdownActive = true;
+    remaining--; // <-- decrement first (SYNC)
 
-      // genau einmal pro Sekunde sprechen/beepen
+    // countdown last 10 seconds (10..1)
+    if (remaining <= 10 && remaining >= 1) {
+      showCountdownHud(remaining);
+
       if (lastSpoken !== remaining) {
         lastSpoken = remaining;
         beep(remaining <= 3 ? 980 : 880, 120, 0.06);
         speakNumber(remaining);
       }
     } else {
-      countdownActive = false;
+      hideCountdownHud();
       lastSpoken = null;
     }
 
-    remaining--;
-
-    // bei 0: Rakete starten
     if (remaining === 0) {
       running = false;
-      countdownActive = false;
+      hideCountdownHud();
       lastSpoken = null;
 
-      // final beep + "0"
       beep(1200, 180, 0.08);
       speakNumber(0);
 
+      // start 60s cinematic rocket film
       startRocketShow();
     }
   }
@@ -637,14 +865,14 @@ function setTimer() {
   minutesInput.value = String(mins);
   secondsInput.value = String(secs);
 
-  stopRocketShow(); // falls Animation noch läuft
+  stopRocketShow();
   remaining = mins*60 + secs;
   if (remaining <= 0) remaining = 1;
   lastSpoken = null;
+  hideCountdownHud();
 }
 
 function toggleTimer() {
-  // erste Nutzeraktion => Audio aktivieren
   ensureAudio();
   running = !running;
 }
@@ -653,7 +881,6 @@ document.getElementById("btnSet").addEventListener("click", () => {
   ensureAudio();
   setTimer();
 });
-
 document.getElementById("btnToggle").addEventListener("click", toggleTimer);
 
 // Preset: 15 Sekunden
